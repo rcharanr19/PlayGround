@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+
+	<sub-flow name="retrieve-cdc-business-data-flow" doc:id="fe818828-aa04-4cba-8e1a-2b756673b871" >
+		<ee:transform doc:name="derive-cdc-query" doc:id="6c8b13fb-de8b-43f9-ba80-653595ee3225" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+//var cdcQueryKey = vars.cdcTableName ++ ".cdc." ++ (if(vars.isInitialLoad) "fullQuery" else "deltaQuery")
+var cdcQueryKey = vars.cdcTableName ++ ".cdc.query"
+---
+p(''++ cdcQueryKey)
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<!-- 
+		<json-logger:logger doc:name="log-cdc-query-with-parms" doc:id="26599ef9-1c94-4593-9724-f6ef34a4af67" config-ref="JSON_Logger_Config" message="#['Table name : ' ++ vars.cdcTableName ++ ' : ' ++ (vars.cdcMinTableKey) ++  ' : ' ++ (vars.cdcFromTableValue) ++ ' : ' ++ vars.cdcMaxTableKey ++ ' : ' ++ vars.cdcToTableValue ++ ' : ' ++ ' : cdcQuery : ' ++ payload]" />
+		 -->
+		<db:select doc:name="retrieve-cdc-data" doc:id="1e2abd4d-e33d-47c7-8f5e-620f09c7a595" config-ref="Shared_TasApp_Database_Config">
+			<db:sql>#[payload]
+</db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java 
+import * from dw::core::Binaries
+---
+
+{
+	lsnRelationOperator: p('' ++ vars.cdcTableName ++ ".cdc.lsnRelationOperator") default "largest less than or equal",	
+	fromLSN: vars.cdcFromTableValue,
+	toLSN: vars.cdcToTableValue,
+	rowFilterOption: p(('' ++ vars.cdcTableName ++ ".cdc.rowFilterOption")) default "ALL"
+	
+}]]]></db:input-parameters>
+		</db:select>
+		<json-logger:logger doc:name="log-cdc-data" doc:id="d9be69ab-6e7e-4247-8cfe-a7a547d02cda" config-ref="JSON_Logger_Config" message='#["Table : " ++ vars.cdcTableName ++ " : count : " ++ sizeOf(payload) ++ " : payload : " ++
+write(payload, "application/json",{indent:false} )]' >
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: JSONLoggerModule::stringifyAny(payload) 
+}]]]></json-logger:content>
+		</json-logger:logger>
+	</sub-flow>
+	
+	
+	<sub-flow name="retrieve-cdc-end-lsn-flow" doc:id="d516e87a-be78-4f85-ac32-8ba28d997d4e">
+		<json-logger:logger doc:name="log-cdc-max-message" doc:id="aab76b82-9ad3-4672-92d5-5f1c9c8e2486" config-ref="JSON_Logger_Config" message="#['Retrieve table : ' ++ vars.cdcTableName ++ ' : max key : ' ++ vars.cdcMaxTableKey]" />
+		<try doc:name="Try" doc:id="e805f086-d76a-464d-b330-85974787cd30">
+			<db:select doc:name="retrieve-cdc-max-key" doc:id="906fb5c5-5097-47fb-9786-c60a79b51cdd" config-ref="Shared_TasApp_Database_Config">
+			<db:sql>#[&quot;SELECT TAS_App.sys.fn_cdc_map_lsn_to_time(sys.fn_cdc_get_max_lsn()) as cdcMaxTableKey&quot;]</db:sql>
+		</db:select>
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="3cd13d65-762a-4aec-ac90-fc2ab0e1169a">
+					<json-logger:logger doc:name="log-cdc-max-key-retrieve-error" doc:id="a93fd89a-4899-4ab5-bb5b-5d23448d716e" config-ref="JSON_Logger_Config" message="#['Error occured when retrieving the max key for cdc table : ' ++ vars.cdcTableName ++ ' : errorMessage : ' ++ error.message]" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="e82636e3-6dee-4ea2-be19-ee9b6b8a08d7">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+import * from dw::core::Binaries 
+---
+payload[0].cdcMaxTableKey]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="log-max-lsn-base64-key" doc:id="c5b3bef2-69e2-4107-9666-36df8daa7c3d" config-ref="JSON_Logger_Config" message="#['Retrieved ' ++ vars.cdcTableName ++ ' max key : ' ++ (payload as String)]" />
+	</sub-flow>
+	<sub-flow name="retrieve-initial-cdc-table-min-lsn-flow" doc:id="03820f74-8893-4acb-9490-9792c599937c">
+		<json-logger:logger doc:name="log-initialload-min-message" doc:id="3689250d-91df-43f9-aff0-8cf2cba53e5e" config-ref="JSON_Logger_Config" message="#['Initial load Retrieve CDC table : ' ++ vars.cdcTableName ++ ' min key']" />
+		<try doc:name="Try" doc:id="0229da8c-a612-4e03-a625-fb19b3182763">
+			<db:select doc:name="retrieve-initial-cdc-min-key" doc:id="9f6a43a2-bbc7-49fc-894f-fcb5844e2e88" config-ref="Shared_TasApp_Database_Config">
+			<db:sql>#[&quot;SELECT TAS_App.sys.fn_cdc_map_lsn_to_time(sys.fn_cdc_get_min_lsn('&quot;  ++ vars.cdcTableName ++ &quot;')) as cdcInitialMinKey&quot; ]</db:sql>
+		</db:select>
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="67d8afb4-b014-48c3-b0c2-a900f8948c44">
+					<json-logger:logger doc:name="log-cdc-min-key-retrieve-error" doc:id="3e2d879c-d347-4c25-a086-128562fac064" config-ref="JSON_Logger_Config" message="#['Error occured when retrieving the min key for cdc table : ' ++ vars.cdcTableName ++ ' : errorMessage : ' ++ error.message]" tracePoint="EXCEPTION" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="8c01f30f-14d3-4987-be66-d4f1fa28d162">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+import * from dw::core::Binaries 
+
+---
+payload[0].cdcInitialMinKey
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="log-initial-cdc-min-key" doc:id="979cd294-1d5b-4487-8754-c5e52089eb05" config-ref="JSON_Logger_Config" message="#['Retrieved ' ++ vars.cdcTableName ++ ' initial min key : ' ++ (payload as String)]" tracePoint="END" />
+	</sub-flow>
+	<sub-flow name="retrieve-start-lsn-flow" doc:id="d4239525-5bc2-488a-afac-8343bdeebc29">
+		<try doc:name="Try" doc:id="5e850fc6-9b5f-4251-a56d-b1f84e462c60">
+			<!-- 
+			<flow-ref doc:name="retrieve-cdcFromTableValue-sub-flow-ref" doc:id="9f424bea-7cab-4559-a65b-0530a01ec293" name="retrieve-cdcFromTableValue-sub-flow" />
+			 -->
+			<os:retrieve doc:name="retrieve-cdcFromTableValue" doc:id="36a9583a-557a-4ac2-b37a-ac1edbca11b2" objectStore="cdc_object_store" target="cdcFromTableValue" key="#[vars.cdcMinTableKey]">
+			</os:retrieve>
+			<json-logger:logger doc:name="log-cdcFromTableValue" doc:id="709a61cc-8509-4527-9b5d-6c77ed08f2b8" config-ref="JSON_Logger_Config" message='vars.cdcTableName ++ " : cdcFromKey : " ++ vars.cdcFromTableValue' />
+			<choice doc:name="isInitialLoad?" doc:id="734a6992-c3d6-41f9-a9be-066ae94bacfe">
+				<when expression="#[vars.isInitialLoad]">
+					<flow-ref doc:name="retrieve-initial-cdc-table-min-lsn-flow-ref" doc:id="5013c283-f424-466a-8710-926c69cfa583" name="retrieve-initial-cdc-table-min-lsn-flow" target="cdcFromTableValue"/>
+				</when>
+				<otherwise>
+					<json-logger:logger doc:name="log-delta-run-message" doc:id="ebe78db5-5ddd-4723-a2e4-2511bf0060c9" config-ref="JSON_Logger_Config" message="Delta load Retrieve CDC table : #[vars.cdcTableName] min key : #[vars.cdcFromKey]" />
+				</otherwise>
+			</choice>
+			
+			<error-handler>
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="cdbb7c99-16d0-48d8-a1f7-b7a22ed10022">
+					<ee:transform doc:name="set-isInitialLoad" doc:id="76fe75c7-9203-4ef4-97a7-99585d8d7e93" >
+						<ee:message >
+						</ee:message>
+						<ee:variables >
+							<ee:set-variable variableName="isInitialLoad" ><![CDATA[%dw 2.0
+output application/java
+---
+true]]></ee:set-variable>
+						</ee:variables>
+					</ee:transform>
+					<flow-ref doc:name="retrieve-initial-cdc-table-min-lsn-flow-ref" doc:id="a6738910-0f3f-478f-a5b6-393b607f0443" name="retrieve-initial-cdc-table-min-lsn-flow" target="cdcFromTableValue" />
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<json-logger:logger doc:name="log-min-lsn-base64-key" doc:id="862a47c5-d35e-41e8-a9d8-819c96c73dae" config-ref="JSON_Logger_Config" message='#[import * from dw::core::Binaries 
+output applicaiton/json 
+--- 
+"Table : " ++ (vars.cdcTableName) ++ " : " ++ vars.cdcMinTableKey ++ " :" ++ (vars.cdcFromTableValue as String)]' />
+	</sub-flow>
+
+
+</mule>

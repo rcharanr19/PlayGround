@@ -1,0 +1,208 @@
+objectTypes: "Mechanical,TestHistory,AssetDetails,RepairHistory,ProjectBom,Rider,Contract"
+
+objectType:
+  cdcTables:
+    Mechanical: "dbo_tblAssetComponent,dbo_tblAssetComponentAttrib"
+    TestHistory: "dbo_tblTestResults"
+    AssetDetails: "dbo_tblAssetMaster,dbo_tblAssetUMLERData"
+    RepairHistory: "dbo_tblRepairMechDataWorkQueue,dbo_tblRepInvoiceHdr,dbo_tblRepInvoiceDet"
+    ProjectBom: "dbo_tblProjectScopeBOM"
+    Rider: "dbo_tblRiderArticle"
+    Contract: "dbo_tblContractArticle"
+    
+
+#### Mechanical Data ####    
+dbo_tblAssetComponent:
+  cdc:
+    query: >-
+      SELECT  distinct AssetID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblAssetComponent 
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn 
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging 
+      ([TASAssetID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:tasAssetId, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)   
+  insert:
+    dwlfile: dwl/dbo_tblAssetComponentInsert.dwl
+    
+dbo_tblAssetComponentAttrib:
+  cdc:
+    query: >-
+      SELECT  distinct two.AssetID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblAssetComponentAttrib
+      (:minLsn, :maxLsn, 'All with merge')
+      as one JOIN TAS_App.dbo.tblAssetComponent(nolock) two  on  one.RecordID = two.RecordID       
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging 
+      ([TASAssetID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:tasAssetId, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblAssetComponentAttribInsert.dwl
+
+
+#### Test History ####  
+    
+dbo_tblTestResults:
+  cdc:
+    query: >-
+      SELECT  distinct AssetID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblTestResults
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging 
+      ([TASAssetID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:tasAssetId, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblTestResultsInsert.dwl
+
+
+#### Asset Details ####     
+
+dbo_tblAssetMaster:
+  cdc:
+    query: >-
+      SELECT  distinct AssetID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblAssetMaster
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging 
+      ([TASAssetID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:tasAssetId, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblAssetMasterInsert.dwl
+    
+dbo_tblAssetUMLERData:
+  cdc:
+    query: >-
+      SELECT  distinct AssetID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblAssetUMLERData
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging 
+      ([TASAssetID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:tasAssetId, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblAssetUMLERDataInsert.dwl
+    
+#### Repair History ####    
+dbo_tblRepairMechDataWorkQueue:
+  cdc:
+    query: >-
+      SELECT  distinct RepInvoiceHdrID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblRepairMechDataWorkQueue
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_RepairHistory_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_RepairHistory_Staging 
+      ([TASRepInvoiceHdrID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:TASRepInvoiceHdrID, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblRepairMechDataWorkQueueInsert.dwl
+    
+dbo_tblRepInvoiceHdr:
+  cdc:
+    query: >-
+      SELECT  distinct RepInvoiceHdrID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblRepInvoiceHdr
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_RepairHistory_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_RepairHistory_Staging 
+      ([TASRepInvoiceHdrID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:TASRepInvoiceHdrID, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblRepInvoiceHdrInsert.dwl
+    
+dbo_tblRepInvoiceDet:
+  cdc:
+    query: >-
+      SELECT  distinct RepInvoiceHdrID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblRepInvoiceDet 
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_RepairHistory_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_RepairHistory_Staging 
+      ([TASRepInvoiceHdrID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:TASRepInvoiceHdrID, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblRepInvoiceDetInsert.dwl
+    
+    
+dbo_tblProjectScopeBOM:
+  cdc:
+    query: >-
+      SELECT  distinct ProjectScopeID,__$operation as operation
+      FROM cdc.fn_cdc_get_net_changes_dbo_tblProjectScopeBOM
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn
+
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_ProjectBOM_Staging"
+    query: >-
+      INSERT INTO TAS_Support.dbo.TAS_SF_ProjectBOM_Staging
+      ([TASProjectScopeID] ,[APIType] ,[Action] ,[IntegrationStatus] ,[MuleBatchId] ,[Comments] ,[CreatedBy] ,[CreatedDate]) 
+      VALUES (:tasProjectScopeId, :apiType, :action, :integrationStatus, :jobName, :comments, :createdBy, :createdDate)  
+  insert:
+    dwlfile: dwl/dbo_tblProjectScopeBOMInsert.dwl
+
+ 
+#### Rider Documents  ####    
+dbo_tblRiderArticle:
+  cdc:
+    query: >-
+      SELECT __$start_LSN,RiderID  as  TASId, ObjectType='Rider' , REPLACE(ArticlePath, '\', '/')  as DocumentNameWithPath , __$operation as Operation  , Description as DocumentDescription 
+       FROM [cdc].[fn_cdc_get_net_changes_dbo_tblRiderArticle] 
+      (:minLsn, :maxLsn, 'All with merge')      
+      where  __$start_lsn > :fromLsn and is3PLA=0 
+  staging:
+    table: "TAS_Support.TAS_SF_Documents_Staging"
+    query: >-
+     insert into TAS_SF_Documents_Staging (TASID,APIType,Action,DocumentDescription,DocumentNameWithPath,IntegrationStatus,CreatedDate,CreatedBy)
+      values (:tasId,:objectType, :action,:documentDescription,:documentNameWithPath,:integrationStatus,:createdDate,:createdBy)  
+  insert:
+    dwlfile: dwl/dbo_tblRiderContractArticleInsert.dwl
+    
+#### Contract Documents  ####    
+dbo_tblContractArticle:
+  cdc:
+    query: >-
+      SELECT __$start_LSN,ContractID as TASId,ObjectType='Contract', ContractArticleID,REPLACE(ArticlePath, '\', '/')  as DocumentNameWithPath,RiderAccess , __$operation as Operation , Description as DocumentDescription
+      FROM [cdc].[fn_cdc_get_net_changes_dbo_tblContractArticle] 
+      (:minLsn, :maxLsn, 'All with merge')  
+      WHERE  __$start_lsn > :fromLsn and RiderAccess =1 and is3PLA=0 
+  staging:
+    table: "TAS_Support.TAS_SF_Documents_Staging"
+    query: >-
+     insert into TAS_SF_Documents_Staging (TASID,APIType,Action,DocumentDescription,DocumentNameWithPath,IntegrationStatus,CreatedDate,CreatedBy)
+      values (:tasId,:objectType, :action,:documentDescription,:documentNameWithPath,:integrationStatus,:createdDate,:createdBy)  
+  insert:
+    dwlfile: dwl/dbo_tblRiderContractArticleInsert.dwl

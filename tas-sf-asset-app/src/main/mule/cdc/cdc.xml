@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+
+<!-- 	
+	<db:config name="TAS_APP_Database_Config" doc:name="Database Config" doc:id="e3e05a64-49b9-474f-b541-849f6d22ff7e" >
+		<db:generic-connection url="jdbc:sqlserver://trintsql4.trin.dev:1433;database=TAS_Support;user=Dev_User;password=crystal;" driverClassName="com.microsoft.sqlserver.jdbc.SQLServerDriver"/>
+	</db:config>
+
+	<os:object-store name="cdc_object_store" doc:name="Object store" doc:id="6a6c566f-274b-4a6b-b125-aa4848c220c7" />
+
+	<json-logger:config name="JSON_Logger_Config" doc:name="JSON Logger Config" doc:id="b486a0aa-7a86-40d8-ab44-4a8e94210f3c" environment="${mule.env}" />
+	
+	<sub-flow name="retrieve-cdcFromTableValue-sub-flow" doc:id="81b50346-6890-444a-a0a8-f3bddc2bd18a" >
+		<os:retrieve doc:name="retrieve-cdcFromTableValue" doc:id="86aedf56-ef2e-427e-8151-2a1cc0ecf630" objectStore='dbo_tblAssetComponent_object_store' target="cdcFromTableValue" key="#[vars.cdcMinTableKey]">
+		</os:retrieve>
+		<json-logger:logger doc:name="log-cdcFromTableValue" doc:id="aeb84968-6a1e-473c-88f0-f126a47c211c" config-ref="JSON_Logger_Config" message='vars.cdcTableName ++ " : cdcFromKey : " ++ vars.cdcFromTableValue' />
+	</sub-flow>
+
+	<sub-flow name="store-cdcToTableValue-sub-flow" doc:id="6b9de9c7-9631-4675-b9ef-6811c32732cb" >
+		<os:store doc:name="store-cdcToTableValue" doc:id="afa7878a-1fca-4f6f-a976-10bef6048f45" key="#['cdcFrom' ++ 'TableValue']" failOnNullValue="false">
+			<os:value><![CDATA[#[vars.cdcToTableValue]]]></os:value>
+		</os:store>
+		<json-logger:logger doc:name="log-cdcToTableValue" doc:id="2fb453bd-3987-42f9-baf0-54cd42ac64cf" config-ref="JSON_Logger_Config" message='#["Table : " ++ vars.cdcTableName ++ " : from value : " ++ vars.cdcFromTableValue ++ " : to value : " ++ vars.cdcToTableValue]'/>
+	</sub-flow>
+ -->
+	<sub-flow name="orchestrate-retrieve-cdc-table-data-sub-flow" doc:id="10ab9de2-cd7e-4081-85e1-b69ab501a25a">
+		<json-logger:logger doc:name="log-cdc-table-start" doc:id="72866b72-3223-48c8-8ad8-ba67af3a15a7" config-ref="JSON_Logger_Config" message="#['Orchestrate CDC table data sub flow started']" />
+		<flow-ref doc:name="retrieve-start-lsn-flow-ref" doc:id="11b193af-da9c-4082-a597-40787914aa94" name="retrieve-start-lsn-flow" />
+		<flow-ref doc:name="retrieve-cdc-end-lsn-flow-ref" doc:id="d39e787b-10c1-4cc3-9ecd-b91b98cc2e76" name="retrieve-cdc-end-lsn-flow" target="cdcToTableValue" />
+		<flow-ref doc:name="retrieve-cdc-business-data-flow-ref" doc:id="5458eee5-8b5a-47d1-8abe-83a2e07fe908" name="retrieve-cdc-business-data-flow" />
+		<ee:transform doc:name="set-storeInfo" doc:id="fa948a38-304c-4264-ab54-1472aee274d1" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="storeInfo" ><![CDATA[%dw 2.0
+output application/java
+---
+(vars.storeInfo default {}) ++
+{
+	(vars.cdcMinTableKey): vars.cdcFromTableValue,
+	(vars.cdcMaxTableKey): vars.cdcToTableValue
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<json-logger:logger doc:name="log-cdc-table-end" doc:id="ab3d6216-64c2-4676-a3e2-a8beb1ad6904" config-ref="JSON_Logger_Config" message="#['Orchestrate CDC table data sub flow completed']" tracePoint="END" />
+	</sub-flow>
+	<sub-flow name="retrieve-individual-cdc-table-data-sub-flow" doc:id="ebe8f918-f11c-499d-a2d2-ad5f89ac54f9">
+		<json-logger:logger doc:name="log-cdc-data-start" doc:id="6083d380-572c-4d14-aa53-a54372677cc7" config-ref="JSON_Logger_Config" message="#['Retrieve all CDC tables data sub flow started']" />
+		<ee:transform doc:name="set-cdc-table-keys" doc:id="d5b0ce8f-9877-4ed5-80d7-c04844588a7a">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="cdcTableName"><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-variable>
+		<ee:set-variable variableName="cdcMaxTableKey"><![CDATA[%dw 2.0
+output application/java
+---
+payload ++ "_endTime"]]></ee:set-variable>
+		<ee:set-variable variableName="cdcMinTableKey"><![CDATA[%dw 2.0
+output application/java
+---
+payload ++ "_startTime"]]></ee:set-variable>
+			
+		</ee:variables>
+		</ee:transform>
+		<json-logger:logger doc:name="log-min-max-keys" doc:id="0e4643bd-9bfd-4ff1-8893-50a0f1b5e5c3" config-ref="JSON_Logger_Config" message="#['Table : ' ++ vars.cdcTableName ++ ' : Min key : ' ++ vars.cdcMinTableKey ++ &quot; : Max key : &quot; ++ vars.cdcMaxTableKey]" />
+		<flow-ref doc:name="orchestrate-retrieve-cdc-table-data-sub-flow-ref" doc:id="2c6aa6e2-d812-4b2a-b390-8a8e85818382" name="orchestrate-retrieve-cdc-table-data-sub-flow" />
+		<ee:transform doc:name="set-payload" doc:id="21f9dc14-84f5-49d4-9dd8-7d545873110d">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+({(vars.cdcTableName) : payload })]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="log-cdc-data-end" doc:id="bbc56fdd-2fba-4c48-ac4c-3e1f68f43c55" config-ref="JSON_Logger_Config" message="#['Retrieve all CDC tables data sub flow completed']" tracePoint="END" />
+	</sub-flow>
+	<sub-flow name="orchestrate-cdc-delta-sub-flow" doc:id="208ba7ef-7e37-4cbc-92f0-f0f788a4f10d">
+		<json-logger:logger doc:name="log-orchestrate-cdc-delta-sub-flow-start" doc:id="6ad3045a-13fc-436c-8bfc-523161d30653" config-ref="JSON_Logger_Config" message="#['orchestrate cdc sub flow started']" />
+		<ee:transform doc:name="set-tables" doc:id="fbec55d2-ba00-4fe3-b077-4913f751fa1d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+//p('objectTypes') splitBy ","
+ flatten((p('objectTypes') splitBy ",") map (p('objectType.cdcTables.' ++ $) splitBy ","))]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="finalCDCResult" ><![CDATA[%dw 2.0
+output application/java
+---
+{}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<foreach doc:name="for-each-table" doc:id="e4ca6eed-0bb1-48d8-a659-c44e8ae1eb39" >
+			<try doc:name="Try" doc:id="f76e4855-5914-442c-a3c2-c65f6490ebd4" >
+				<flow-ref doc:name="retrieve-individual-cdc-table-data-sub-flow-ref" doc:id="bc77a8cb-54e3-4ee2-a962-2c29646f6fce" name="retrieve-individual-cdc-table-data-sub-flow" />
+				<flow-ref doc:name="transform-staging-table-specific-data-sub-flow-ref" doc:id="3a30b23e-0103-43ce-b862-bf59bc7aeceb" name="#[p('transform.flow') default &quot;transform-staging-table-specific-data-sub-flow&quot;]" />
+				<flow-ref doc:name="sync-staging-table-sub-flow-ref" doc:id="9b992654-49d6-4949-adcc-dedb8901d852" name="sync-staging-table-sub-flow" />
+				<ee:transform doc:name="set-to-final-result" doc:id="efa250af-d5b5-4ce0-82c9-a224d2279a2c">
+				<ee:message>
+				</ee:message>
+				<ee:variables>
+					<ee:set-variable variableName="finalCDCResult"><![CDATA[%dw 2.0
+output application/java
+---
+//vars.finalCDCResult[payload] =+ ({(vars.cdcTableName) : payload })
+vars.finalCDCResult ++
+{
+	(vars.cdcTableName): payload
+}]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+				<error-handler >
+					<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="2ce89594-8c64-4a58-9c2b-f8fce8eac3e8" >
+						<json-logger:logger doc:name="log-error-for-table" doc:id="3324eefb-9bc9-448d-b3f0-1016ce2483d0" config-ref="JSON_Logger_Config" message='#[vars.cdcTableName ++ " Min LSN could not updated due to failure : " ++  error.detailedDescription]'/>
+						<ee:transform doc:name="Transform Message" doc:id="19c837b3-d79d-4a19-9284-fed6bce15f41" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message:  vars.cdcTableName ++ " Min LSN could not updated due to failure : " ++  error.detailedDescription
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</on-error-continue>
+				</error-handler>
+			</try>
+		</foreach>
+		<ee:transform doc:name="Transform Message" doc:id="3d78da1a-8365-4b71-ac93-0e5489f713ac" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+vars.finalCDCResult]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="log-orchestrate-cdc-delta-sub-flow-end" doc:id="88c821d6-2577-42fe-bf16-55b38c258fca" config-ref="JSON_Logger_Config" message="#['orchestrate cdc sub flow completed']" tracePoint="END" />
+	
+	</sub-flow>
+
+
+</mule>

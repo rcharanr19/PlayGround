@@ -1,0 +1,496 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+
+
+	<os:object-store name="TestHistorySFIds" doc:name="Object store" doc:id="b6cd7b96-4366-4bb2-92b3-5bcfc86f4ebb" />
+	<flow name="asset-test-history-retrieve-db-recordsFlow" doc:id="c7bef91b-6349-4ec2-b52d-ce19bb7e6692">
+		
+		<json-logger:logger doc:name="Logger" doc:id="c148ea8b-16bd-4411-a2fd-ce1690b5dedc" config-ref="JSON_Logger_Config" message="Retrieving data from staging table" tracePoint="BEFORE_REQUEST">
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<db:select doc:name="CDC table" doc:id="71b8eca3-7d2e-41d2-b0b3-30aba7c1be83" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>${testHistory.database.retrieve}</db:sql>
+		</db:select>
+		<json-logger:logger doc:name="Logger" doc:id="4a88466a-f318-4114-b1e2-8889959361e9" config-ref="JSON_Logger_Config" message="#['Number of asset records retrieved from staging table :' ++ sizeOf(payload)]" tracePoint="AFTER_REQUEST">
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<choice doc:name="Choice" doc:id="ef946758-dd7c-4bb4-b9fa-aed573f38211">
+			<when expression="#[sizeOf(payload default []) &gt; 0]">
+				<flow-ref doc:name="testHistory-BatchJob" doc:id="0ca1ace7-6787-4356-a106-ad239f70c444" name="testHistory-BatchJob" />
+			</when>
+			<otherwise>
+				<logger level="INFO" doc:name="Logger" doc:id="3cd1bda3-fa78-4054-8350-49a700e208b8" message="no data retrieved from DB" />
+				<ee:transform doc:name="Transform Message" doc:id="14fe303f-19f1-49e2-949e-17feecec87fc" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+status:'No data retrieved from database',
+timestamp: now()
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="testHistory-BatchJob" doc:id="db0bfc07-9e60-49b1-8904-bac4b8c862d2" >
+		<batch:job jobName="tas-sf-asset-appBatch_Job" doc:id="ac1b69dc-b207-48d9-a4b8-9437d5538de5" maxFailedRecords="-1" maxConcurrency="25">
+			<batch:process-records>
+				<batch:step name="Delete-test-data-Batch_Step" doc:id="8658c8d5-3197-4728-a182-8cd0be9b655f" >
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="ef822cb8-592e-4d3d-b221-8cbbaefdc4e4" size="5000">
+						<try doc:name="Try" doc:id="07c3e309-b377-4aa1-bffe-753bc85ce50e" >
+							<ee:transform doc:name="Transform Message" doc:id="93863921-4796-4770-b836-e0050fc25a4f">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+
+"'" ++ (payload.TASAssetID joinBy "','") ++ "'"
+
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+							<json-logger:logger doc:name="Logger" doc:id="51538c7c-a3b0-45df-a4e2-ca67bf00cb71" config-ref="JSON_Logger_Config" message="#['Request to retrieve Test History SFId\'s: ' ++ payload]" tracePoint="BEFORE_REQUEST" />
+							<salesforce:query doc:name="Query" doc:id="6aca852a-a16c-412f-821c-b45b8db52ca4" config-ref="Shared_Salesforce_Config">
+							<salesforce:salesforce-query>SELECT Id FROM TestHistory__c where Asset__r.RFO_TASId__c In (:assetIds)</salesforce:salesforce-query>
+							<salesforce:parameters><![CDATA[#[output application/java
+---
+{
+	assetIds : payload
+}]]]></salesforce:parameters>
+						</salesforce:query>
+							<json-logger:logger doc:name="Logger" doc:id="5679d87e-87db-40e7-9e57-ee651a532865" config-ref="JSON_Logger_Config" message="#['No. of Test History SFId\'s retrieved:'   ++ sizeOf(payload)]" tracePoint="AFTER_REQUEST">
+							<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+						</json-logger:logger>
+							<choice doc:name="Choice" doc:id="da998ce5-7a23-498b-bb48-d6500cfb50c2">
+							<when expression="#[sizeOf(payload) &gt; 0]">
+								<salesforce:delete doc:name="Delete" doc:id="0f8acee5-6a56-4404-babb-f7649dff494e" config-ref="Shared_Salesforce_Config">
+							<salesforce:delete-ids><![CDATA[#[%dw 2.0
+output application/java
+---
+payload.Id]]]></salesforce:delete-ids>
+						</salesforce:delete>
+								<json-logger:logger doc:name="Logger" doc:id="3cc05a8a-d8b4-42db-a8b4-f46d638b10b1" config-ref="JSON_Logger_Config" message="#['No. of Test History SFId\'s deleted:'   ++ sizeOf(payload)]" />
+							</when>
+							<otherwise>
+								<json-logger:logger doc:name="Logger" doc:id="a9d20e79-1e59-4f4a-bf78-28bd1f5d30a2" config-ref="JSON_Logger_Config" message="#['No test data retrieved for Assets']">
+									<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+								</json-logger:logger>
+							</otherwise>
+						</choice>
+							<error-handler >
+								<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="d311743e-b2e7-4cab-95d3-10021c69284c" >
+									<json-logger:logger doc:name="Logger" doc:id="4fbbe27a-00be-4a59-a1a3-8a9b22c552dd" config-ref="JSON_Logger_Config" message="#[error.description]">
+										<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+									</json-logger:logger>
+								</on-error-propagate>
+							</error-handler>
+						</try>
+					</batch:aggregator>
+				</batch:step>
+			<batch:step name="Batch_Step" doc:id="d7b0a7c9-caf0-4ad7-b0ca-c93ef873b7f2">
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="22def524-adf5-4862-8cfd-6bba94fea61c" size="50000">
+						<flow-ref doc:name="upsert-test-history-data-to-RF" doc:id="aa536bc6-7653-4b55-8bc4-ed5927a0bba2" name="upsert-test-history-data-to-RF" />
+					</batch:aggregator>
+					<flow-ref doc:name="test-history-call-DotNetApiFlow" doc:id="062419c3-5339-422a-9013-749bd9068ff0" name="test-history-call-DotNetApiFlow" />
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete>
+				<os:retrieve doc:name="Retrieve" doc:id="ff4ba028-69a5-4957-9fe4-9bcb8ee6a198" key="orgReqList" objectStore="TestHistorySFIds" target="orgReq">
+					<os:default-value ><![CDATA[#[[]]]]></os:default-value>
+				</os:retrieve>
+				<flow-ref doc:name="asset-test-history-retrieve-results-SFFlow" doc:id="e151b441-265c-47c6-9a9f-a2f5b7fb6d23" name="asset-test-history-retrieve-results-SFFlow"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+	<flow name="test-history-call-DotNetApiFlow" doc:id="0d674cb5-d0dd-45f6-878d-3435badcd934" >
+		<set-variable value="#[payload.TASAssetId]" doc:name="Set Variable" doc:id="4ebdb796-e978-44d4-8e59-a6123bc47bea" variableName="TASAssetId"/>
+		<try doc:name="Try" doc:id="1b791df4-9a5a-4f67-916f-f5c02c1371ef" >
+			<until-successful maxRetries="3" doc:name="Until Successful" doc:id="94da2956-8fa8-46aa-8896-5a9e18451e8d" millisBetweenRetries="500">
+			<http:request method="GET" doc:name=".net api" doc:id="b04e13c2-b48d-49af-ba0f-54b4bf0e67bd" config-ref="HTTP_Request_configuration_TestHistory" path="${http.requester.tas.testhistory.path}" outputMimeType="application/json">
+			<http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+payload]]]></http:body>
+			<http:uri-params><![CDATA[#[output application/java
+---
+{
+	"assetId" : payload.TASAssetId
+}]]]></http:uri-params>
+		</http:request>
+		</until-successful>
+			<ee:transform doc:name="Transform Message" doc:id="8ed054a5-6030-4f57-b675-62c054cf4f04">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+
+payload.testHistory map (payload02,indexOfPayload02 ) ->{
+"Asset__r.RFO_TASId__c"	: payload.assetId,	
+Car_Mark__c	:payload.carMark,
+Car_Number__c:payload.carNumber,
+Date_Passed__c:payload02.datePassed,
+Next_Test_Date__c:payload02.nextTestDate,
+TAS_Test_ID__c:payload02.testId,
+Test_Name__c:payload02.testName  default "" replace '"' with "'",
+Test_Result_ID__c:payload02.testResultId,
+Test_Type__c:payload02.testTypeDesc  default "" replace '"' with "'",
+Shop_Location__c:payload02.placeName  default "" replace '"' with "'",
+Shop_Name__c:payload02.acctName  default "" replace '"' with "'",
+Test_Desc__c:payload02.testDesc  default "" replace '"' with "'",
+Shop_Incident__c:payload02.shopIncidentId,
+Account_ID_RFO__c:payload02.acctId,
+Name:payload02.testResultId
+}
+
+
+
+
+
+
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+			<validation:is-not-empty-collection doc:name="Is not empty collection" doc:id="1fb0b7ca-d0aa-4b17-b13c-6e7939841e1f" message="#['No test data returned from .Net Api for Asset:' ++ vars.TASAssetId]" />
+			<error-handler >
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="79883910-dde6-4863-8dd7-b1b095f5113b" >
+					<json-logger:logger doc:name="Logger" doc:id="0df55c46-90f5-4b5c-8cfb-fe15d8dbaa70" config-ref="JSON_Logger_Config" message="#['Failure sending request to .Net API for asset:' ++ vars.TASAssetId]">
+						<json-logger:content ><![CDATA[#[output application/json 
+---
+{
+    error: error.description
+}]]]></json-logger:content>
+					</json-logger:logger>
+					<ee:transform doc:name="Transform Message" doc:id="c2bb7779-ba1d-41d7-9756-1e09ad8eba1e" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+{
+	"MuleBatchId":vars.batchJobInstanceId,
+	"lastUpdatedBy": 'tas-sf-asset-sync-job',
+	"integrationDate": integrationDate,
+	"lastUpdatedDate": integrationDate,
+	"comments":error.description,
+	"IntegrationStatus": "F",
+	"SFID":"",
+	"ID":vars.TASAssetId
+  
+  }
+ ]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<db:update doc:name="Update" doc:id="29c6bbdd-6865-4f36-9f07-e7dda35b3a47" config-ref="Shared_TasSupport_Database_Config">
+						<db:sql >${testHistory.database.update}</db:sql>
+						<db:input-parameters ><![CDATA[#[payload]]]></db:input-parameters>
+					</db:update>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+	</flow>
+	<flow name="upsert-test-history-data-to-RF" doc:id="4418e318-d898-497c-aa54-90b6fb2b198b" >
+		<ee:transform doc:name="Transform Message" doc:id="11e6d7da-0ea8-40b3-93bd-40f18cc709c4">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/csv quoteValues=true 
+---
+
+flatten(payload)
+/*payload map (payload01,indexOfPayload01 ) -> {
+Capacity__c:"",	
+Asset__c	:"",	
+CarMark__c	:"",
+CarNumber__c:"",
+DatePassed__c:"",
+NextTestDate__c:"",
+Build_Date__c:"",
+Bottom_Outlet_Valve_Cap_Gasket__c:"",
+BOV_Handle_Type__c:"",
+//TASTest_ID__c:payload01.TASTest_ID__c,
+BOV_Current_per_Mechanical_Data__c:"",
+TestName__c:"",
+TestType__c:"",
+Name:"Muletest1",
+TestResultID__c:payload01.TASTest_ID__c
+ 
+  }*/]]></ee:set-payload>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="orgReq"><![CDATA[%dw 2.0
+output application/java
+---
+
+flatten (payload) map {
+     assetId:$.'Asset__r.RFO_TASId__c',
+     testResultId:$.Test_Result_ID__c
+      
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<os:retrieve doc:name="Retrieve" doc:id="6f277179-341c-457f-bbbe-33212887b40e" key="orgReqList" objectStore="TestHistorySFIds" target="orgReqList">
+			<os:default-value ><![CDATA[#[[]]]]></os:default-value>
+		</os:retrieve>
+		<os:store doc:name="Store" doc:id="384edab2-36af-4dae-b914-434b92be0171" key="orgReqList" objectStore="TestHistorySFIds">
+			<os:value><![CDATA[#[vars.orgReq ++ vars.orgReqList]]]></os:value>
+		</os:store>
+		<json-logger:logger doc:name="Logger" doc:id="a25082ec-fda4-4e1d-8274-5af756c14f5f" config-ref="JSON_Logger_Config" message="#['Upserting data to RF: ' ++ sizeOf(payload)]">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<salesforce:create-job-bulk-v2 objectType="TestHistory__c" operation="insert" doc:name="Create job bulk v 2" doc:id="6dc2b3c2-5b51-471b-ab2b-2dba2025998e" lineEnding="CRLF" target="SFId" targetValue="#[%dw 2.0
+output application/json
+---
+payload.id]" config-ref="Shared_Salesforce_Config" />
+		<json-logger:logger doc:name="Logger" doc:id="d52df24b-2c0c-4fe0-aedb-1f4d403565e5" config-ref="JSON_Logger_Config" message="#['Upsert successful to SF:' ++ vars.SFId]">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload:""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<ee:transform doc:name="Transform Message" doc:id="fa1dbf85-021f-4b6d-9528-04483cefa38a">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+(vars.orgReq map (payload01,indexOfPayload01 ) -> {
+
+
+"ID": payload01.assetId,
+"SFID": vars.SFId,
+"MuleBatchId":vars.batchJobInstanceId,
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":'Created bulk job v2 in salesforce' ,
+IntegrationStatus:"P"
+
+  }) distinctBy $
+  
+  ]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<flow-ref doc:name="test-history-update-dbSub_Flow" doc:id="92b6906f-eb79-46da-aac4-7103b6768d01" name="test-history-update-dbSub_Flow" />
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="94a9ea3a-7e64-4038-a99c-a50dbaff477f" >
+				<json-logger:logger doc:name="Logger" doc:id="9aeb60fa-3530-4da9-a5d8-cb217adabe30" config-ref="JSON_Logger_Config" message="#['Upsert failed to SF']">
+					<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    errror:error.description
+}]]]></json-logger:content>
+				</json-logger:logger>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	<sub-flow name="test-history-update-dbSub_Flow" doc:id="39f72b9a-2b58-448e-8ca6-34847dbe44b7" >
+		<db:bulk-update doc:name="Bulk update" doc:id="59fb1bb2-e5e7-46fe-bb53-8b6cfb27189d" config-ref="Shared_TasSupport_Database_Config">
+						<db:sql>${testHistory.database.update}</db:sql>
+					</db:bulk-update>
+	</sub-flow>
+		<flow name="asset-test-history-retrieve-results-SFFlow" doc:id="d658f3d1-a833-4148-9302-04f23a2f1474" >
+		<json-logger:logger doc:name="Logger" doc:id="de90b856-bf44-4ffb-83cc-9dee70af7609" config-ref="JSON_Logger_Config" message="Executing on complete flow">
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule
+import * from dw::Runtime
+ output application/json ---
+{
+    payload: (payload) wait 180000
+
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<db:select doc:name="Select" doc:id="4157267d-521d-42b5-90dd-41f16f434908" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql >select distinct RFBatchId from TAS_SF_Asset_Staging  where APIType = 'TestHistory' and RFBatchId != '' and IntegrationStatus = 'P'</db:sql>
+		</db:select>
+		<batch:job jobName="asset-test-history-syncBatch_Job" doc:id="68b70a41-ffac-4b2d-8e07-2e6de826c994" >
+			<batch:process-records >
+				<batch:step name="Batch_Step1" doc:id="926affbb-cdb4-4f9d-88c0-822418098b48" >
+					<try doc:name="Try" doc:id="71d0c0b9-81c7-4880-bff9-361acc828ad4" >
+						<salesforce:retrieve-record-failure-bulk-v2 doc:name="Retrieve record failure bulk v 2" doc:id="3cc8227a-3734-4aca-9c0b-34ede38f5b45" config-ref="Shared_Salesforce_Config" id="#[payload.RFBatchId]" target="FailureIds" />
+						<error-handler >
+							<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="171c1002-73ad-4f75-9cd2-2ba14af62a2f" >
+								<json-logger:logger doc:name="Logger" doc:id="b6ca40de-a931-4331-a2a5-60f075b9867a" config-ref="JSON_Logger_Config" message="#['error fetching failure records']" tracePoint="EXCEPTION">
+									<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    error: error.description
+}]]]></json-logger:content>
+								</json-logger:logger>
+								<set-variable value="#[[]]" doc:name="Set Variable" doc:id="50b14c92-2a71-4109-96f0-9b4e45a0d714" variableName="FailureIds"/>
+							</on-error-continue>
+						</error-handler>
+					</try>
+					<json-logger:logger doc:name="Logger" doc:id="3cd65f7d-363c-4f3e-80e2-5b4cafa0270d" config-ref="JSON_Logger_Config" message="#['Request to retrieve RfRecordId\'s from SF:' ++ payload.RFBatchId]" tracePoint="BEFORE_REQUEST">
+				<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+			</json-logger:logger>
+					<try doc:name="Try" doc:id="8384775a-a564-40bb-8159-5e5ccb84f563" >
+						<salesforce:retrieve-record-success-bulk-v2 doc:name="Retrieve record success bulk v 2" doc:id="12b8555d-a5a3-4619-aefa-5db91515f85a" config-ref="Shared_Salesforce_Config" id="#[payload.RFBatchId]" />
+						<salesforce:retrieve doc:name="Retrieve" doc:id="7c5082bd-b5c4-4df0-a52c-c628706da7e0" config-ref="Shared_Salesforce_Config" type="TestHistory__c">
+			<salesforce:retrieve-request><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+    "Ids":payload.id,
+    Fields:["Asset__r.RFO_TASId__c","Test_Result_ID__c"]
+}]]]></salesforce:retrieve-request>
+		</salesforce:retrieve>
+						<json-logger:logger doc:name="Logger" doc:id="aaaf9834-7550-4a70-ab80-02f825ee38dc" config-ref="JSON_Logger_Config" message="Retrieved RfRecordId's from SF" tracePoint="AFTER_REQUEST">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+						<ee:transform doc:name="Transform Message" doc:id="23c4b738-0906-4606-96f0-26cbc0399e67">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+
+(vars.orgReq map (firstInputValue) -> using (id = firstInputValue.testResultId)
+  {
+    testResultId : id,
+    assetId: firstInputValue.assetId,
+    (payload filter ($.Test_Result_ID__c contains id)  map (secondInputValue) -> {
+      SFGUID : secondInputValue.Id,
+      IntegrationStatus: "S",
+      comments: "SFGuid:" ++ secondInputValue.Id ++'/' ++ 'testResultId:' ++ id
+    }),
+   ( vars.FailureIds filter ($.errorMessage contains firstInputValue.assetId)  map (secondInputValue) -> {
+       
+	"comments":secondInputValue.errorMessage ++ "Failed tasId:" ++ id,
+	"IntegrationStatus":"R"
+    })  
+  }) map {
+      testId: $.testResultId,
+      assetId: $.assetId,
+      SFGUID: $.SFGUID default "",
+      IntegrationStatus:$.IntegrationStatus default "R",
+      comments:$.comments default  "Failed tasId:" ++ $.testResultId
+  }
+
+
+
+
+
+
+
+/*(payload map{
+"tasId":$.TAS_Asset_ID__c,
+"id":"SFGUID:" ++ $.Id ++',' ++ 'rfo_id:' ++ $.TAS_Asset_ID__c,
+} )*/
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="5dcf396b-8308-48ac-a18c-a37c2144f722" message="#[payload]" />
+						<ee:transform doc:name="Transform Message" doc:id="56d5e211-e244-4b43-94bb-d6ccd2bd7d52">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+((payload groupBy $.assetId) pluck $) map (input1) -> {
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"ID": input1[0].assetId,
+"SFID": input1.SFGUID joinBy ',',
+"integrationStatus":  if (input1.IntegrationStatus contains "R") "R" else "S",
+comments: input1.comments joinBy ";"}
+
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="dd6ed515-c413-41f0-94e6-a0589b035a4a" message="#[payload]"/>
+						<error-handler >
+							<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="cee0cd9d-4361-400f-9e15-ad0a5c376847" >
+								<json-logger:logger doc:name="Logger" doc:id="344ffd07-34c6-4672-8038-aa3dd47cfdb5" config-ref="JSON_Logger_Config" message="#['error retrieving/transforming results']">
+									<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    error: error.description
+}]]]></json-logger:content>
+								</json-logger:logger>
+							</on-error-propagate>
+						</error-handler>
+					</try>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="b38e82e1-33a8-4ec9-92da-d1da02072eeb" size="50000">
+						<logger level="INFO" doc:name="Logger" doc:id="11cd1eb5-9723-4dbd-8efd-d65a0e17a2f7" message="#[payload]"/>
+						<ee:transform doc:name="Transform Message" doc:id="5addf21f-4b9f-4767-ba9c-383c38a5ff1a" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload)]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						
+						<logger level="INFO" doc:name="Logger" doc:id="fbe62868-019e-4ede-a761-01638ba84606" message="before updating db: #[payload]"/>
+						<db:bulk-update doc:name="Bulk update" doc:id="0931f3f3-e9b0-4ef2-a5e2-404ada949557" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>UPDATE TAS_SF_Asset_Staging SET IntegrationStatus = :integrationStatus,  LastUpdatedDate = :lastUpdatedDate, IntegrationDate = :integrationDate, LastUpdatedBy = :lastUpdatedBy, Comments = :comments WHERE TASAssetId = :ID and APIType = 'TestHistory'</db:sql>
+		</db:bulk-update>
+						<json-logger:logger doc:name="Logger" doc:id="fd48d401-9a9e-47aa-9fbc-aadc2de8c129" config-ref="JSON_Logger_Config" message="Updated RfRecordId's in Staging Database" tracePoint="END">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<os:remove doc:name="Remove" doc:id="6e9dae52-75f9-4f55-963d-d1911eeffe39" key="orgReqList" objectStore="TestHistorySFIds" />
+				<json-logger:logger doc:name="Logger" doc:id="42fdabb8-0699-4d67-8242-1e98fb1a3dd1" config-ref="JSON_Logger_Config" message="Test history sync job completed" >
+					<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+				</json-logger:logger>
+			</batch:on-complete>
+		</batch:job>
+	<!-- 	<ee:transform doc:name="Transform Message" doc:id="2e40285e-0955-4cae-95d8-1f06b00392fc" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+-&#45;&#45;
+
+((payload groupBy $.tasId) pluck $) map {
+
+'tasId': $[0].tasId,
+'comments':$.id joinBy ";"
+
+} ]]></ee:set-payload>
+			</ee:message>
+		</ee:transform> -->
+	
+	
+</flow>
+</mule>

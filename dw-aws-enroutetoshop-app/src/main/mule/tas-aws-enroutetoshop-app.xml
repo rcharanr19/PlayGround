@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:rds="http://www.mulesoft.org/schema/mule/rds"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/rds http://www.mulesoft.org/schema/mule/rds/current/mule-rds.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	
+	<configuration-properties doc:name="Configuration properties" doc:id="bb041de6-d0b4-49ef-b5f7-d62b020f2aab" file="common-config.yaml" />
+	<configuration-properties doc:name="Configuration properties" doc:id="4f661046-496b-453c-9d3d-4e5f530db78b" file="config.${mule.env}.yaml" />
+		<db:config name="Shared_AWS_Database_Config" doc:name="Database Config" doc:id="e3ff8b8c-e68a-43cd-a819-7b0ff4823f42" >
+        <db:generic-connection url="${aws.url}" transactionIsolation="SERIALIZABLE" useXaTransactions="true" driverClassName="org.postgresql.Driver" user="${aws.user}" password="${aws.password}">
+   
+        </db:generic-connection>
+    </db:config>
+	<flow name="scheduler-cdc-dw-aws-enroutetoshop-appFlow" doc:id="35daa4c3-f563-4a8a-bca0-2fb12abf4291" >
+		<scheduler doc:name="Scheduler" doc:id="55497dae-7239-4a7d-8a8c-621462c4cfff" >
+			<scheduling-strategy >
+				<cron expression="${cronExpression.cdc}"/>
+			</scheduling-strategy>
+		</scheduler>
+		<logger level="INFO" doc:name="Logger" doc:id="d1c70b1d-436b-46a0-a6a4-b0ea1a05261c" message="#['Schedule triggered for cdc :: correlation-id: ' ++ correlationId]"/>
+		<flow-ref doc:name="Flow Reference" doc:id="d702c3e0-2686-4f19-bb93-00ff6c217fab" name="cdc-dw-aws-enroutetoshop-appFlow"/>
+	</flow>
+	<flow name="scheduler-sync-dw-aws-enroutetoshop-appFlow" doc:id="27a1f71a-032a-4fe0-bf10-f4088e98b6ac" >
+		<scheduler doc:name="Scheduler" doc:id="d624baf4-30dd-4bf3-8ab0-9e5729110a21" >
+			<scheduling-strategy >
+				<cron expression="${cronExpression.sync}" />
+			</scheduling-strategy>
+		</scheduler>
+		<logger level="INFO" doc:name="Logger" doc:id="6f7f82ea-14e3-4a76-8eda-10d96d4efd01" message="#['Schedule triggered for sync :: correlation-id: ' ++ correlationId]"/>
+		<flow-ref doc:name="Flow Reference" doc:id="9806f9ee-83ca-424a-ade6-064514a9a2d3" name="sync-dw-aws-enroutetoshop-appFlow"/>
+	</flow>
+	<flow name="cdc-dw-aws-enroutetoshop-appFlow" doc:id="9b0f7f67-59a5-4fdf-b7f1-11b0de6f1281" >
+		<http:listener doc:name="Listener" doc:id="d0f5a95d-cf6d-4b59-9a4e-41e464286abd" path="${http.cdc.path}" config-ref="HTTP_Listener_config"/>
+		<db:select doc:name="Select" doc:id="b5510d83-0be1-4707-9f33-d20f1b5a5724" config-ref="Shared_RailForceSupport_Database_Config">
+			<db:sql >${source.query}</db:sql>
+		</db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="b749152d-d5a3-4b16-9150-b0a7367e6bc3" message="#['number of records retrieved from source table: ' ++ (sizeOf(payload) default 0) ++ ':: correlation-id: ' ++ correlationId]"/>
+		<flow-ref doc:name="cdc-dw-aws-enroutetoshop-appBatchFlow" doc:id="13adc06f-b4f6-405a-9448-412450e07710" name="cdc-dw-aws-enroutetoshop-appBatchFlow"/>
+	</flow>
+	<flow name="cdc-dw-aws-enroutetoshop-appBatchFlow" doc:id="c60def2a-ea44-469a-99e9-83981bf52ebe" >
+		<batch:job jobName="tas-aws-enroutetoshop-appBatch_Job" doc:id="fd439ffe-59e1-4271-8430-64f9051a9b39" maxFailedRecords="-1" maxConcurrency="10">
+			<batch:process-records>
+				<batch:step name="Batch_Step1" doc:id="9083e7be-6ff8-485e-9424-a6bd3fb40f7c" >
+					<ee:transform doc:name="Transform Message" doc:id="aadd598e-67e9-4d61-b4f5-60fb215cfb3d" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	 TasProjectAssetID: payload.ProjectAssetID
+   	,apiType: 'enroutetoshop'
+   	,action: "U"
+   	,integrationStatus: 'I'
+   	,comments: 'Synced from tas-aws-enroutetoshop-app'
+   	,createdDate: now() as LocalDateTime
+	,createdBy: 'tas-aws-enroutetoshop-app'
+	,jobName: correlationId
+	,InputPayload: write (payload, 'application/json') as String
+}
+
+	
+]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="e595b6aa-34f5-46cb-adaf-3a3f372f56fd" size="5000">
+						<ee:transform doc:name="Transform Message" doc:id="98c12311-96d7-47c3-a4a5-bf9911241fab">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload)]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="d260af8f-9b80-4c6a-b77e-092104d4e049" message="#['updating records to staging table: ' ++ (sizeOf(payload) default 0) ++ ':: correlation-id: ' ++ correlationId]"/>
+						<db:bulk-insert doc:name="Bulk insert" doc:id="2a81b296-f527-40e0-b27a-8b8039e70f38" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql>INSERT INTO TAS_Support.dbo.DW_AWS_Project_Staging 
+                 ([TasProjectAssetID] 
+                 ,[APIType] 
+                 ,[Action] 
+                 ,[IntegrationStatus] 
+                 ,[MuleBatchId] 
+                 ,[Comments] 
+                 ,[CreatedBy] 
+                 ,[CreatedDate]
+                 ,[InputPayload]) 
+                VALUES 
+                 (:TasProjectAssetID 
+                 ,:apiType 
+                 ,:action 
+                 ,:integrationStatus 
+                 ,:jobName 
+                 ,:comments 
+                 ,:createdBy
+                 ,:createdDate
+                 ,:InputPayload)</db:sql>
+						</db:bulk-insert>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Logger" doc:id="b275a14a-0ed3-4355-95a2-5ecb1e43798f" message="#['cdc-staging flow ended :: correlation-id: ' ++ correlationId]"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+	<flow name="sync-dw-aws-enroutetoshop-appFlow" doc:id="f149029e-37ad-4d02-aa15-e7e19c674043" >
+		<http:listener doc:name="Listener" doc:id="b76151c6-c417-4812-849a-42a7a4465df9" path="${http.sync.path}" config-ref="HTTP_Listener_config"/>
+		<db:select doc:name="Select" doc:id="af84d91b-9da3-4526-af1b-dbc83e85f2f2" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql >select distinct TasProjectAssetID,InputPayload from TAS_Support.dbo.DW_AWS_Project_Staging  where IntegrationStatus not in ('F','S')
+</db:sql>
+		</db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="542c0069-7c80-4d31-a5b5-5c5642bd831e" message="#['number of records retrieved from staging table: ' ++ (sizeOf(payload) default 0) ++ ':: correlation-id: ' ++ correlationId]"/>
+		<db:delete doc:name="Delete" doc:id="17a4b369-4a30-4d83-93af-c78bdf8f9ac2" config-ref="Shared_AWS_Database_Config" target="latestDel">
+								<db:sql>DELETE FROM enroute_to_shop_latest</db:sql>
+							</db:delete>
+		<flow-ref doc:name="sync-dw-aws-enroutetoshop-appBatchFlow" doc:id="555f2c15-6f5e-491a-92cb-a8686fc77967" name="sync-dw-aws-enroutetoshop-appBatchFlow"/>
+	</flow>
+	<flow name="sync-dw-aws-enroutetoshop-appBatchFlow" doc:id="7a497086-d202-436d-a307-c5c781ff1be3" >
+		<batch:job jobName="tas-aws-enroutetoshop-appBatch_Job1" doc:id="fdaa6000-22b5-4158-ab0a-ad4cc9973d05" maxFailedRecords="-1" maxConcurrency="25" blockSize="10">
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="e842411e-0bfe-43bb-af2d-b94e32706dbb" >
+					<ee:transform doc:name="Transform Message" doc:id="061002bf-d268-4b37-bf91-fd5490cc5e57" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+
+read(payload.InputPayload,"application/json")]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<try doc:name="Try" doc:id="16f6d824-6bbb-4180-81a0-255d3708ad9c" >
+						<ee:transform doc:name="Transform Message" doc:id="cb61f213-3f52-415f-8cb9-c367d2f63bed">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+AcctName:           payload.AcctName,
+AssetName:      payload.CarMark ++ ' ' ++ payload.CarNumber,
+CarMark: payload.CarMark  ,
+CarNumber: payload.CarNumber,
+SPLC:      payload.Shop_SPLCs,
+Complete:      payload.Complete,
+CreatedBy:      payload.CreatedBy,
+CreatedDate:      payload.CreatedDate as DateTime as String {format:"yyyy-MM-dd hh:mm:ss"},
+LastUpdatedBy:      payload.LastUpdatedBy,
+LastUpdatedDate:      payload.LastUpdatedDate as DateTime as String {format:"yyyy-MM-dd hh:mm:ss"} ,
+ProjectID:      payload.ProjectID,
+AssetID:      payload.AssetID,
+AssetLocationStatusDate:      payload.AssetLocationStatusDate as DateTime as String {format:"yyyy-MM-dd hh:mm:ss"} ,
+CurrentLocation:      payload.CurrentLocation ,
+Destination:      payload.Destination ,
+LocationStatus:      payload.LocationStatus,
+Origin:      payload.Origin,
+STCC:      payload.STCC,
+CustomerAcctID:      payload.CustomerAcctID,
+reported_time:now() as String {format:"yyyy-MM-dd hh:mm:ss"},
+projectcustomerid: payload.ProjectCustomerID,
+projectassetid:payload.ProjectAssetID
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+						<error-handler >
+							<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="2bd11ec8-7e4e-4c07-b9da-a8f631b96a50" >
+								<ee:transform doc:name="Transform Message" doc:id="667404bf-5a11-4303-ae8b-747c40920d38" >
+									<ee:message >
+										<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime){
+	IntegrationStatus: "F",
+	MuleBatchId:	vars.batchJobInstanceId,
+	lastUpdatedDate: integrationDate,
+	lastUpdatedBy: "tas-aws-enroutetoshop-app",
+	integrationDate: integrationDate,
+	comments:error.description default "Failed to upsert into enroute_to_shop table",
+	TASProjectAssetID: payload.ProjectAssetID
+	}
+  ]]></ee:set-payload>
+									</ee:message>
+								</ee:transform>
+								<logger level="INFO" doc:name="Logger" doc:id="54ff91ae-1b11-4acd-b364-8ac9911eaa1f" message="#[payload]" />
+								<db:update doc:name="Update" doc:id="221b86fa-a8b1-4c40-84df-22ea3373bd9e" config-ref="Shared_TasSupport_Database_Config">
+									<db:sql >UPDATE TAS_Support.dbo.DW_AWS_Project_Staging  
+				SET IntegrationStatus = :IntegrationStatus, 
+				       MuleBatchId = :MuleBatchId, 
+					   LastUpdatedDate = :lastUpdatedDate, 
+					   IntegrationDate = :integrationDate, 
+					   LastUpdatedBy = :lastUpdatedBy, 
+					   Comments = :comments 
+			   	WHERE TASProjectAssetID = :TASProjectAssetID and APIType = 'enroutetoshop' and IntegrationStatus not in ('S','F')</db:sql>
+									<db:input-parameters ><![CDATA[#[payload]]]></db:input-parameters>
+								</db:update>
+							</on-error-propagate>
+						</error-handler>
+					</try>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="559d3df8-72de-4234-a0a0-e0b83d8f1fc1" size="100">
+						<logger level="INFO" doc:name="Logger" doc:id="ed0975e9-b076-4ae6-8311-2e21466efa62" message="#['updating ' ++ (sizeOf(payload) default 0) ++ ' records to aws table :: correlation-id: ' ++ correlationId]"/>
+						<ee:transform doc:name="Transform Message" doc:id="bb8f2d78-1c27-481d-8559-3bf46bb63a9e">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload)]]></ee:set-payload>
+							</ee:message>
+							<ee:variables>
+							</ee:variables>
+						</ee:transform>
+						<try doc:name="Try" doc:id="4e17e07c-55ff-4380-aff2-80055c37134e" transactionalAction="ALWAYS_BEGIN">
+							<db:bulk-insert doc:name="Bulk insert" doc:id="e8033c08-fb4b-44c2-8ec4-3e7d0ac6a2f0" config-ref="Shared_AWS_Database_Config" target="history">
+							<db:sql>${aws.query.history}</db:sql>
+						</db:bulk-insert>
+							<db:bulk-insert doc:name="Bulk insert" doc:id="011ce5f1-38f0-49ee-afdf-d5da6b5c3749" config-ref="Shared_AWS_Database_Config" target="latest">
+								<db:sql >${aws.query.latest}</db:sql>
+							</db:bulk-insert>
+							<error-handler>
+								<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="a66fa98d-2ecc-4f3a-b0cb-291652c77ca3" >
+									<ee:transform doc:name="Transform Message" doc:id="13eb04d3-6a7a-463b-abd7-5362e836131b">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+ payload map{
+	IntegrationStatus: "F",
+	MuleBatchId:	vars.batchJobInstanceId,
+	lastUpdatedDate: integrationDate,
+	lastUpdatedBy: "tas-aws-enroutetoshop-app",
+	integrationDate: integrationDate,
+	comments:error.description default "Failed to upsert into enroute_to_shop table",
+	TASProjectAssetID: $.projectassetid
+	}
+  ]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+									<logger level="INFO" doc:name="Logger" doc:id="391633bf-8702-41cf-b432-6e56073ce242" message="#[payload]" />
+									<db:bulk-update doc:name="Bulk update" doc:id="1487b181-96da-4c09-ba17-4326fe7015e1" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql>UPDATE TAS_Support.dbo.DW_AWS_Project_Staging  
+				SET IntegrationStatus = :IntegrationStatus, 
+				       MuleBatchId = :MuleBatchId, 
+					   LastUpdatedDate = :lastUpdatedDate, 
+					   IntegrationDate = :integrationDate, 
+					   LastUpdatedBy = :lastUpdatedBy, 
+					   Comments = :comments 
+			   	WHERE TASProjectAssetID = :TASProjectAssetID and APIType = 'enroutetoshop' and IntegrationStatus not in ('S','F')</db:sql>
+						</db:bulk-update>
+								</on-error-propagate>
+							</error-handler>
+						</try>
+						<ee:transform doc:name="Transform Message" doc:id="0aab389c-a3df-4c64-85a6-7688d780a949">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload map {
+	IntegrationStatus: "S",
+	MuleBatchId:	vars.batchJobInstanceId,
+	lastUpdatedDate: now() as String {format:"yyyy-MM-dd hh:mm:ss"},
+	lastUpdatedBy: "tas-aws-enroutetoshop-app",
+	integrationDate:now() as String {format:"yyyy-MM-dd hh:mm:ss"},
+	comments:"Succesfully upserted to AWS enroute_to_shop_latest",
+	TASProjectAssetID: $.projectassetid
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="f8bcb07e-b08b-4100-8818-32f36241db41" message="#['updating ' ++ (sizeOf(payload) default 0) ++ ' records to staging table :: correlation-id: ' ++ correlationId]" />
+						<db:bulk-update doc:name="Bulk update" doc:id="6558f994-84c1-4566-ab4f-bb07fc639c32" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql >UPDATE TAS_Support.dbo.DW_AWS_Project_Staging
+	SET IntegrationStatus = :IntegrationStatus, 
+		   MuleBatchId = :MuleBatchId, 
+		   LastUpdatedDate = :lastUpdatedDate, 
+		   IntegrationDate = :integrationDate, 
+		   LastUpdatedBy = :lastUpdatedBy, 
+		   Comments = :comments 
+	WHERE TASProjectAssetID = :TASProjectAssetID and APIType = 'enroutetoshop' and IntegrationStatus not in ('S','F')</db:sql>
+						</db:bulk-update>
+						<logger level="INFO" doc:name="Logger" doc:id="f6d9eace-ddba-4fce-8090-af1894007e7c" message="#['updated records to staging table :: correlation-id: ' ++ correlationId]"/>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Logger" doc:id="99facec3-1bd5-4fcf-91ee-9034b7fef5d5" message="#['staging-aws flow ended :: correlation-id: ' ++ correlationId]"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+</mule>

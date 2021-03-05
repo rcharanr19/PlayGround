@@ -1,0 +1,8 @@
+sftp:
+  hostname: "kiteworks.trin.net"
+  username: "imulesftp@trin.net"
+  sourceDirectory: "/Commodity/test/HazMat"
+  connectionTimeout: "20"
+  
+  
+cronExpression: "0 0/10 7-19 ? * * *"

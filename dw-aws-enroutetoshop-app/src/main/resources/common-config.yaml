@@ -1,0 +1,108 @@
+http:
+  cdc:
+    path: "/batch/enroutetoshop/cdc"
+  sync:
+    path: "/batch/enroutetoshop/sync"
+    
+
+
+source:
+  query: >-
+    WITH CTE
+    AS (
+    SELECT DISTINCT pc.CustomerAcctID,pa.ProjectAssetID, a.AcctName, p.ProjectID, p.Complete, CreatedUser.UserIdFirstName + ' ' + CreatedUser.UserIdLastName CreatedBy,
+    p.CreatedDate, LastUpdatedUser.UserIdFirstName + ' ' + LastUpdatedUser.UserIdLastName LastUpdatedBy, p.LastUpdatedDate, pa.AssetID, am.CarMark, am.CarNumber,
+    pa.AssetLocationStatusDate, pa.CurrentLocation, pa.LocationStatus, pa.Origin, pa.Destination, pa.STCC, pcss.ProjectCustomerID, e.SPLC AS [Shop_SPLC]
+    FROM TAS_App.dbo.tblProject p
+    INNER JOIN TAS_APP.dbo.tblProjectAsset pa ON p.ProjectID = pa.ProjectID
+    INNER JOIN TAS_App.dbo.tblProjectCustomer pc ON pc.ProjectID = p.ProjectID
+    INNER JOIN TAS_App.dbo.tblAcct a ON a.AcctID = pc.CustomerAcctID
+    INNER JOIN TAS_App.dbo.tblProjectCustShopSchedule pcss ON pcss.ProjectCustomerID = pc.ProjectCustomerID
+    INNER JOIN TAS_App.dbo.tblEntity e ON e.EntityID = pcss.ShopEntityID
+    INNER JOIN TAS_App.dbo.tblAssetMaster am ON am.AssetID = pa.AssetID
+    INNER JOIN TAS_App.dbo.tblUsers CreatedUser ON pa.CreatedBy = CreatedUser.UserId
+    INNER JOIN TAS_App.dbo.tblUsers LastUpdatedUser ON pa.CreatedBy = LastUpdatedUser.UserId
+    WHERE 1 = 1
+      AND YEAR(p.CreatedDate) >= 2018
+      AND LocationStatus LIKE '%Shop%'
+    )
+    SELECT DISTINCT
+    CustomerAcctID, ProjectAssetID, AcctName, ProjectID, Complete, CreatedBy, CreatedDate, LastUpdatedBy, MAX(t0.LastUpdatedDate) [LastUpdatedDate], t0.AssetID, CarMark, CarNumber,
+    AssetLocationStatusDate, CurrentLocation, LocationStatus, Origin, Destination, STCC, ProjectCustomerID,
+    STUFF((
+      SELECT ',' + t1.Shop_SPLC
+      FROM CTE t1
+      WHERE t1.AssetID = t0.AssetID
+      ORDER BY t1.Shop_SPLC
+      FOR XML PATH('')
+      ), 1, LEN(','), '') [Shop_SPLCs]
+    FROM CTE t0
+    INNER JOIN (
+    SELECT DISTINCT AssetID,
+    MAX(LastUpdatedDate) [LastUpdatedDate]
+    FROM CTE
+    GROUP BY AssetID
+    ) a ON t0.AssetID = a.AssetID
+    AND t0.LastUpdatedDate = a.LastUpdatedDate
+    WHERE 1 = 1
+    GROUP BY CustomerAcctID, ProjectAssetID, AcctName, ProjectID, Complete, CreatedBy, CreatedDate, LastUpdatedBy, t0.AssetID, CarMark, CarNumber, AssetLocationStatusDate,
+    CurrentLocation, LocationStatus, Origin, Destination, STCC, ProjectCustomerID
+    ORDER BY AssetID
+
+aws:
+  query:
+    latest: >-
+      INSERT INTO enroute_to_shop_latest (AcctName, AssetName, SPLC, Complete, CreatedBy, CarNumber, CarMark, LastUpdatedBy, ProjectID, AssetID, reported_time, CurrentLocation,
+      Destination, LocationStatus, Origin, STCC, CustomerAcctID, CreatedDate, LastUpdatedDate, AssetLocationStatusDate, projectcustomerid, projectassetid) 
+              VALUES (:AcctName, :AssetName, :SPLC, :Complete, :CreatedBy, :CarNumber, :CarMark, :LastUpdatedBy, :ProjectID, :AssetID, :reported_time, :CurrentLocation,
+              :Destination, :LocationStatus, :Origin, :STCC, :CustomerAcctID, :CreatedDate, :LastUpdatedDate, :AssetLocationStatusDate, :projectcustomerid, :projectassetid)
+              ON CONFLICT (projectassetid) 
+              DO 
+             UPDATE SET  AcctName = excluded.AcctName,
+                   SPLC = excluded.SPLC,
+                   Complete = excluded.Complete ,
+                   CreatedBy = excluded.CreatedBy,
+                   CarNumber = excluded.CarNumber,
+                   CarMark = excluded.CarMark,
+                   LastUpdatedBy = excluded.LastUpdatedBy,
+                   ProjectID = excluded.ProjectID,
+                   AssetID = excluded.AssetID,
+                   reported_time = excluded.reported_time,
+                   CurrentLocation = excluded.CurrentLocation,
+                   Destination = excluded.Destination,
+                   LocationStatus = excluded.LocationStatus ,
+                   Origin = excluded.Origin,
+                   STCC = excluded.STCC,
+                   CustomerAcctID = excluded.CustomerAcctID,
+                   CreatedDate = excluded.CreatedDate,
+                   LastUpdatedDate = excluded.LastUpdatedDate,
+                   AssetLocationStatusDate = excluded.AssetLocationStatusDate,
+                   projectcustomerid = excluded.projectcustomerid;
+
+    history: >-
+      INSERT INTO enroute_to_shop_history (AcctName, AssetName, SPLC, Complete, CreatedBy, CarNumber, CarMark, LastUpdatedBy, ProjectID, AssetID, reported_time, CurrentLocation,
+      Destination, LocationStatus, Origin, STCC, CustomerAcctID, CreatedDate, LastUpdatedDate, AssetLocationStatusDate, projectcustomerid, projectassetid) 
+              VALUES (:AcctName, :AssetName, :SPLC, :Complete, :CreatedBy, :CarNumber, :CarMark, :LastUpdatedBy, :ProjectID, :AssetID, :reported_time, :CurrentLocation,
+              :Destination, :LocationStatus, :Origin, :STCC, :CustomerAcctID, :CreatedDate, :LastUpdatedDate, :AssetLocationStatusDate, :projectcustomerid, :projectassetid)
+              ON CONFLICT (projectassetid,LastUpdatedDate) 
+              DO 
+             UPDATE SET  AcctName = excluded.AcctName,
+                   SPLC = excluded.SPLC,
+                   Complete = excluded.Complete ,
+                   CreatedBy = excluded.CreatedBy,
+                   CarNumber = excluded.CarNumber,
+                   CarMark = excluded.CarMark,
+                   LastUpdatedBy = excluded.LastUpdatedBy,
+                   ProjectID = excluded.ProjectID,
+                   AssetID = excluded.AssetID,
+                   reported_time = excluded.reported_time,
+                   CurrentLocation = excluded.CurrentLocation,
+                   Destination = excluded.Destination,
+                   LocationStatus = excluded.LocationStatus ,
+                   Origin = excluded.Origin,
+                   STCC = excluded.STCC,
+                   CustomerAcctID = excluded.CustomerAcctID,
+                   CreatedDate = excluded.CreatedDate,
+                   LastUpdatedDate = excluded.LastUpdatedDate,
+                   AssetLocationStatusDate = excluded.AssetLocationStatusDate,
+                   projectcustomerid = excluded.projectcustomerid;

@@ -1,0 +1,6 @@
+
+sftp:
+  hostname: "rr2dt.kinaxis.com"
+  username: "TRID01_DEV_DIS"
+  password: "HCih2ATKItw"
+  workingDirectory: "\\\\pintwebappfs.prod.ted.loc\\PreProd\\Logs\\Mulesoft\\Asset\\app\\rr-sf-assetfile-app\\working directory\\"

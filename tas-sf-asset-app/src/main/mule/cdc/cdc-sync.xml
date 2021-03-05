@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+	<sub-flow name="sync-records-sub-flow" doc:id="929c321d-eff7-411f-919f-7f052c4d0204">
+		<json-logger:logger doc:name="log-staging-start" doc:id="04ea2469-5909-4433-8e8d-89c7d0d063f2" config-ref="JSON_Logger_Config" message="Staging table insert records started" />
+		<try doc:name="Try" doc:id="f168ed84-725c-4a36-b8e9-f29597094a20" transactionalAction="BEGIN_OR_JOIN">
+			<ee:transform doc:name="Transform Message" doc:id="46b6ca9f-3393-4f9a-bf25-019d47cbc6ad">
+				<ee:message>
+				</ee:message>
+				<ee:variables>
+					<ee:set-variable variableName="scriptData"><![CDATA[%dw 2.0
+output application/json
+//var pathKey = "classpath://" ++ p(''++ vars.cdcTableName ++ '.staging.table.insert.dwlfile')
+var pathKey = "classpath://" ++ p(''++ vars.cdcTableName ++ '.insert.dwlfile')
+
+---
+readUrl(pathKey, "application/java")]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<json-logger:logger doc:name="log-scriptData" doc:id="bd569969-15ba-4b4f-be51-1690b01c6d4d" config-ref="JSON_Logger_Config" message="#['Executing script : ' ++ vars.scriptData]" />
+			<ee:dynamic-evaluate doc:name="dynamic-evaluate-queryInputParmData" doc:id="ec932655-5db3-4225-8fc6-27c798864e3b" expression="#[vars.scriptData]" target="queryInputParmData">
+			</ee:dynamic-evaluate>
+			<json-logger:logger doc:name="log-queryInputParmData" doc:id="69385d5f-3dad-45f9-8143-80817dc8a7c4" config-ref="JSON_Logger_Config" message="#['queryInputParmData : ' ++ write(vars.queryInputParmData, 'application/java')]" />
+			<db:bulk-insert doc:name="bulk-insert-staging-table" doc:id="1dfe482b-d730-4234-96f9-6e910e53e334" config-ref="Shared_TasSupport_Database_Config">
+			<db:bulk-input-parameters><![CDATA[#[vars.queryInputParmData]]]></db:bulk-input-parameters>
+				<db:sql>#[p(''++ vars.cdcTableName ++ '.insert.query')]</db:sql>
+		</db:bulk-insert>
+			<json-logger:logger doc:name="log-insert-staging-table" doc:id="1408213e-56d7-4a1b-bf4d-91ee886e4ee3" config-ref="JSON_Logger_Config" message="#['All records are inserted to staging table : ' ++ p('' ++ vars.cdcTableName ++ '.staging.table') ++ ' from CDC tables : ' ++ (vars.domainCDCTablesKey default &quot;&quot;)]" />
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="a7d37395-302e-4b96-ba07-747e395b75ad">
+					<json-logger:logger doc:name="log-bulk-insert-error" doc:id="59f43ff8-72e6-4131-96cd-e7386f9309fe" config-ref="JSON_Logger_Config" message="#['Error occurred while inserting bulk data into staging table : ' ++ error.detailedDescription]" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<json-logger:logger doc:name="log-staging-end" doc:id="22ade680-7226-47c1-942c-f83d67db6b18" config-ref="JSON_Logger_Config" message="#['staging table insert records completed']" />
+	</sub-flow>
+	<sub-flow name="sync-staging-table-sub-flow" doc:id="47bbcbb8-2836-46f3-b6ec-c26c6a04be07" >
+		<choice doc:name="Choice" doc:id="f02bc7ab-8a00-4609-981e-aff1fc47a2aa">
+			<when expression="#[sizeOf(payload default []) &gt; 0]">
+				<flow-ref doc:name="sync-records-sub-flow-ref" doc:id="4b50eefd-f825-4d53-ad22-d381ca8df057" name="sync-records-sub-flow" target="stagingUpdateResult"/>
+				<ee:transform doc:name="set-response" doc:id="07681e72-f80a-4711-a528-73c2e5685939">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message:  vars.cdcTableName ++ " Min LSN updated : count : " ++ sizeOf(payload default []) ++ " records were synced to Staging table!",
+	result: payload	 
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+				<!-- 
+				<flow-ref doc:name="store-cdcToTableValue-sub-flow-ref" doc:id="30646d80-0f33-4fcc-aca4-025d6b267bc3" name="store-cdcToTableValue-sub-flow" />
+				 -->
+				<os:store doc:name="store-cdcToTableValue" doc:id="81f968cc-268a-4627-b6fd-0235c47913b0" key="#[vars.cdcMinTableKey]" failOnNullValue="false" objectStore="cdc_object_store">
+					<os:value><![CDATA[#[vars.cdcToTableValue]]]></os:value>
+				</os:store>
+				<json-logger:logger doc:name="log-cdcToTableValue" doc:id="d2014d9f-808e-4350-854c-b51d0b311c90" config-ref="JSON_Logger_Config" message='#["Table : " ++ vars.cdcTableName ++ " : from value : " ++ vars.cdcFromTableValue ++ " : to value : " ++ vars.cdcToTableValue]'/>
+			</when>
+			<otherwise>
+				<logger level="INFO" doc:name="log-noupdate-lsn-message" doc:id="0d1da1ec-1e5d-436c-85b0-5edd660f45c0" message="No Min LSN update as there are no records exists : count : #[sizeOf(payload default [])]" />
+				<ee:transform doc:name="set-no-records-response" doc:id="96042e87-7eda-4787-a8a3-8f5ec3ac0b58">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message:  "No Min LSN update as there are no records exists : count : " ++ sizeOf(payload default []) 
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+	</sub-flow>
+
+	
+
+</mule>

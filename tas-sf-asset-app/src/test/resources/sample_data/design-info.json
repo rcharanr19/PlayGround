@@ -1,0 +1,14 @@
+{
+  "sampleData": {
+    "1e2abd4d-e33d-47c7-8f5e-620f09c7a595": {
+      "vars-dbo_tblAssetComponentAttrib_max_lsn": "sample_data/message.dwl",
+      "vars-dbo_tblAssetComponentAttrib_min_lsn": "sample_data/serializable.dwl"
+    },
+    "de9440b2-86cd-4e05-8453-7bc93bdaffff": {
+      "payload": "sample_data/object.dwl"
+    },
+    "8e6507f6-1aa4-4abe-9dc6-dba1fb17af6f": {
+      "payload": "sample_data/unknown.dwl"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+
+
+	<sub-flow name="transform-staging-table-specific-data-sub-flow" doc:id="5796ba51-5ad4-45d5-80e2-dfe00bde21da" >
+		<json-logger:logger doc:name="log-transform-staging-start" doc:id="a1e867ff-fa54-4b45-a7c2-4ef6966724ad" config-ref="JSON_Logger_Config" message="#[write(payload, 'application/json')]"/>
+		<json-logger:logger doc:name="log-formatted-data" doc:id="6e0517ab-4c56-4cb7-898a-814f1cc91221" config-ref="JSON_Logger_Config" message="#['Formatted recieved asset data : ']"/>
+		<ee:transform doc:name="Transform Message" doc:id="9ca763af-6c68-49f1-a444-f4991ca88d3f">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+//(flatten(payload..AssetID))  distinctBy $
+(payload..AssetID default []) distinctBy $]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="log-transform-staging-end" doc:id="2829bbd1-c9b7-4da1-8858-44639e144527" config-ref="JSON_Logger_Config" message="#['CDC Data for tables : ' ++ (vars.domainCDCTablesKey default &quot;&quot;)]" />
+	</sub-flow>
+
+
+</mule>

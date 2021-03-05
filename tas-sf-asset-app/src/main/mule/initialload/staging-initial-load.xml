@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+	<flow name="initial-load-sub-flow" doc:id="ddc5fa29-a5d1-45ac-891f-db4605ccd2f0">
+		<ee:transform doc:name="set-scheduleRunDateTime" doc:id="6637397d-ee1d-43b7-b89e-77a5564a4c4b">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="scheduleRunDateTime"><![CDATA[%dw 2.0
+output application/java
+---
+now() as LocalDateTime {format: "yyyy-MM-dd HH:mm:ss.SSS"}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		
+		<flow-ref doc:name="get-initial-load-data-flow-ref" doc:id="b4107cd3-79d7-40ac-9c28-07fd2b101930" name="get-initial-load-data-flow" />				
+		<choice doc:name="Choice" doc:id="87c82f49-ef5c-4d97-8073-4a2b0f2ef84b" >
+			<when expression="#[sizeOf(payload default []) &gt; 0]">
+				<flow-ref name="insert-staging-initial-load-flow" doc:name="insert-staging-initial-load-flow-ref" doc:id="e0cb0a9e-bb34-4f1c-9dea-43641347039d" />
+			</when>
+			<otherwise >
+				<json-logger:logger doc:name="log-no-records-message" doc:id="b177edfc-f0ba-4025-abf6-b15bce21d94b" config-ref="JSON_Logger_Config" message="#['No Asset records are there in environment']"/>
+			</otherwise>
+		</choice>
+		<ee:transform doc:name="Transform Message" doc:id="d68ca592-a83e-48cf-b809-6bdaa2fc1326" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	scheduleRunDateTime: vars.scheduleRunDateTime,
+	message: 'Processed ' ++ vars.recordsCount ++ ' records',
+	batchStatus : 
+	(
+		if(vars.recordsCount > 0)
+			payload	
+		else 
+			'No records are there for processing'
+	)
+		
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="c7bb3a28-8b4f-4c05-8100-e87fd8b49db1" type="ANY">
+				<flow-ref doc:name="errorHandlingFlow" doc:id="594062df-ec03-4aaf-9640-8455cdf4da81" name="errorHandlingFlow" />
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	
+	<sub-flow name="get-initial-load-data-flow">
+		<!-- 		
+		<os:retrieve key="watermark" objectStore="watermarkStore"
+			target="lastQueryTimestamp" doc:name="Retrieve lastQueryTimestamp">
+			<os:default-value ><![CDATA[#[read(p('watermark.default.expression'))]]]></os:default-value>
+		</os:retrieve> 
+		-->
+		<salesforce:query config-ref="Shared_Salesforce_Config"
+			doc:name="query-assets-from-salesforce" doc:id="ebcf71a8-3192-4437-b2cb-b23f008afae5">
+			<salesforce:salesforce-query>select RFO_TASId__c,Id, LastModifiedDate from Asset where Id NOT IN (SELECT Asset__c FROM MechanicalData__c) and RFO_TASId__c!=null ORDER By RFO_TASId__c</salesforce:salesforce-query>
+		</salesforce:query>
+		<ee:transform doc:name="Transform Message" doc:id="5187cfd0-4f01-4d60-87a8-71e0bfeaadd5" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload map 
+([
+{
+	tasAssetId: $.RFO_TASId__c
+   ,apiType: 'Mechanical'
+   ,action: 'I'
+   ,integrationStatus: 'I'
+   //,railforceAssetId: $.Id
+   ,comments: 'Synced from SF using One time load flow'
+   //,jobName: 'tas-sf-assets-load-job'
+   ,createdDate: now() as LocalDateTime
+   ,integrationDate: now() as LocalDateTime
+
+},
+{
+	tasAssetId: $.RFO_TASId__c
+   ,apiType: 'TestHistory'
+   ,action: 'I'
+   ,integrationStatus: 'I'
+   //,railforceAssetId: $.Id
+   ,comments: 'Synced from SF using One time load flow'
+   //,jobName: 'tas-sf-assets-load-job'
+   ,createdDate: now() as LocalDateTime
+   ,integrationDate: now() as LocalDateTime
+
+}
+]))
+   
+           ]]></ee:set-payload>
+			</ee:message>
+			<ee:variables />
+		</ee:transform>
+		<ee:transform doc:name="set-recordsCount" doc:id="859194bf-e123-40fa-9a91-6841df207957" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="recordsCount" ><![CDATA[%dw 2.0
+output application/java
+---
+sizeOf(payload default [])]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<!-- 
+		<os:store key="watermark" failIfPresent="false"
+			failOnNullValue="false" objectStore="watermarkStore" doc:name="Store lastQueryTimestamp">
+			<os:value>#[max(payload map $.LastModifiedDate)]</os:value>
+		</os:store>
+ 		-->
+	
+</sub-flow>
+
+	<flow name="insert-staging-initial-load-flow" doc:id="26388a24-173e-4259-94ed-6acc68fa8575">
+		<batch:job jobName="tas-sf-asset-initial-load-batch" doc:id="3d94f37a-78ef-4960-ab78-4983adabf2ce" maxFailedRecords="-1" maxConcurrency="10">
+			<batch:process-records>
+				
+				<!-- 
+				<batch:step name="are-assets-exists-in-stagingtable-step" doc:id="6e5377d8-8dff-4691-a6a2-9a0227035e0b">
+					<db:select config-ref="Database_Config"
+						doc:name="Query Asset by matching TAS AssetId from Database" doc:id="ecde7703-2db2-43c5-95b5-517681027501"
+						target="recordExists" targetValue="#[payload[0]]">
+						<db:sql>SELECT  [TASAssetID]
+           ,[APIType]
+           ,[Action]
+           ,[IntegrationStatus]
+           ,[RFObjectId]
+           ,[Comments]
+           ,[CreatedBy]
+           ,[CreatedDate] 
+     FROM [dbo].[TAS_SF_Asset_Staging] 
+     WHERE [TASAssetID] in (:assetId)</db:sql>
+						<db:input-parameters><![CDATA[#[{
+	'assetId' : payload.tasAssetId
+}]]]></db:input-parameters>
+					</db:select>
+				</batch:step>
+				 -->
+				
+				<batch:step name="insert-asset-onetime-load-step" doc:id="454ddc97-c7f2-4538-9272-c9f4d80ba4cc">
+					<batch:aggregator doc:name="Batch Aggregator"
+						doc:id="6bbca063-3687-4110-966b-eec3d721a7a5" size="${page.size}">
+						<db:bulk-insert config-ref="Shared_TasSupport_Database_Config"
+							doc:name="Insert Asset into Staging table" doc:id="d7213dc4-f515-4b71-a5bd-9dfcf4db6c61">
+							<db:sql>INSERT INTO [dbo].[TAS_SF_Asset_Staging]
+           ([TASAssetID]
+           ,[APIType]
+           ,[Action]
+           ,[IntegrationStatus]
+          -- ,[RFObjectId]
+           ,[MuleBatchId]
+           ,[Comments]
+           ,[CreatedBy]
+           ,[CreatedDate]
+           )
+     VALUES
+           (:tasAssetId
+           ,:apiType
+           ,:action
+           ,:integrationStatus
+           --,:railforceAssetId 
+           ,:jobName
+           ,:comments
+           ,:createdBy
+           ,:createdDate)
+</db:sql>
+						</db:bulk-insert>
+
+					</batch:aggregator>
+					<ee:transform doc:name="Transform Message" doc:id="c9f83d34-8dc9-4eec-8a6f-c6825dd9592d" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload  ++ 
+{ 
+	createdBy: 'tas-sf-asset-initial-load-flow',
+	jobName: vars.batchJobInstanceId
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				
+</batch:step>
+				<batch:step name="asset-onetime-load-failure-step" doc:id="a37600fd-cce2-4e70-8795-55ed4e67db4e" acceptPolicy="ONLY_FAILURES">
+					<json-logger:logger doc:name="log-failed-record" doc:id="ff9103c4-8973-42ff-811f-19f39c7437a6" config-ref="JSON_Logger_Config" message='#["Failure record error Message : " ++ ((Batch::getStepExceptions()) pluck ("Step : "++ $$ ++ " : " ++ $.message) joinBy ",")]'/>
+				</batch:step>
+				<!-- 
+				<batch:step name="Batch_Step" doc:id="3560e835-2881-410b-9a2d-f69dd125f37c" >
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="014ae5ba-361b-4600-bb1a-945962d0decc" size="${page.size}">
+						<db:bulk-update doc:name="Bulk update" doc:id="fe7cf406-45af-4640-8f92-4c35b97d837e" >
+							<db:sql>
+									UPDATE [dbo].[TAS_SF_Asset_Staging]  
+									SET [Action] = :action
+									      ,[IntegrationStatus] = :integrationStatus
+									      ,[RFObjectId] = :railforceId
+									      ,[Comments] = :comments
+									      ,[CreatedBy] = :jobName
+									      ,[CreatedDate] = :createdDate
+									      ,[LastUpdatedBy] = :jobName
+									      ,[LastUpdatedDate] = :createdDate
+									 WHERE [TASAssetID] = :tasAssetId and [APIType] = :apiType
+							</db:sql>
+						</db:bulk-update>
+					</batch:aggregator>
+				</batch:step>
+				 -->
+			
+
+</batch:process-records>
+			<batch:on-complete>
+				<ee:transform doc:name="Prepare migration result"
+					doc:id="ed412bce-c734-4fe6-9c4c-8f7678543162">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output text/plain
+---
+"Migration Report: \n"
+ 
+++ "\n Time [milliseconds]: " 		++ payload.elapsedTimeInMillis!
+++ "\n Total Records: "				++ payload.totalRecords!
+++ "\n Successful Records: "		++ payload.successfulRecords!
+++ "\n Failed Records: "			++ payload.failedRecords!
+++ "\n Loaded Records: "			++ payload.loadedRecords!
+++ "\n Processed Records: " 		++ payload.processedRecords!]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Migration process has finished!"
+					doc:id="78a74738-6f61-47d3-90e4-f3d99832b848" message="#[payload]" />
+			</batch:on-complete>
+		</batch:job>
+		<ee:transform doc:name="Transform Message" doc:id="8c399772-1cee-4217-a841-a34b67b8e785" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	
+</flow>
+
+</mule>

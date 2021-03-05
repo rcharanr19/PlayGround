@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+
+
+	<flow name="endpointsFlow" doc:id="0c368e0e-6463-436a-b1bf-e177d816ae34">
+		<scheduler doc:name="Scheduler" doc:id="82f11ee2-736c-4cbb-9b64-d91cc3e7de0f" >
+			<scheduling-strategy >
+				<cron expression="${mechanical.cronExpression.initialLoad}" />
+			</scheduling-strategy>
+		</scheduler>
+		<json-logger:logger doc:name="Logger" doc:id="1b089e2a-830c-4e0d-ac5f-ba35b5ccb171" config-ref="JSON_Logger_Config" message="#['Scheduler flow for triggered initial load']">
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<async doc:name="Async" doc:id="68d3e4cf-637e-44b8-9e7e-2555e68527b6" >
+			<flow-ref doc:name="initial-load-sub-flow-ref" doc:id="58488840-397b-40c0-9f6f-20bacfab2596" name="initial-load-sub-flow" />
+		</async>
+	</flow>
+	<flow name="ondemand-initial-load-to-staging-flow" doc:id="e7084317-052f-449e-a53f-4ca397eacf3f" >
+		<http:listener doc:name="Listener" doc:id="c9030fcf-ce88-4b86-b056-b5b6d39f3c16" path="${http.listener.asset.mechanical.path.initialload}" config-ref="HTTP_Listener_config"/>
+		<async doc:name="Async" doc:id="4acf420d-6d71-4952-a429-0df61df4fa5d" >
+			<flow-ref doc:name="initial-load-sub-flow-ref" doc:id="165edfc4-e88f-400c-9418-0cbb603daec9" name="initial-load-sub-flow" />
+		</async>
+		<!-- 
+		<flow-ref doc:name="sfdc-assets-query-flow-ref" doc:id="da66b54a-ae9e-482d-86c0-2e26519f6542" name="sfdc-assets-query-flow" />				
+		<flow-ref name="tas-sf-asset-initial-load-flow" doc:name="tas-sf-asset-initial-load-flow-ref" doc:id="b8b3f769-95df-41c8-91ed-25078519856e" />
+		 -->
+		<ee:transform doc:name="Transform Message" doc:id="a57af4bc-0dde-4838-88e4-5823d302ae76" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+status:'Mule application for Mechanical Data SF to staging flow triggered',
+timestamp: now()
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="94504cca-2b9e-4a01-8de4-4402091d7a52" type="ANY">
+				<flow-ref doc:name="errorHandlingFlow" doc:id="640351d7-9ac8-43dc-8456-5c75d2d2227c" name="errorHandlingFlow" />
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	
+	<flow name="ondemand-mechanical-staging-sf-sync-batch-flow" doc:id="ae4854b5-716e-4c34-9d6f-0be5847e5a7a" >
+		<http:listener doc:name="Listener" doc:id="83e3f728-da37-4c65-a5d0-bfe4c79617f1" path="${http.listener.asset.mechanical.path.sync}" config-ref="HTTP_Listener_config"/>
+		<flow-ref doc:name="asset-mecahnical-staging-to-sf-sync-sub-flow-ref" doc:id="eb9ab43f-bccd-4b1e-bbaf-ade530d749b8" name="asset-mechanical-retrieve-db-recordsFlow" />
+		<ee:transform doc:name="Transform Message" doc:id="8118f43c-1afd-49a2-987e-9c56e7447b23" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+status:'Mule application for Mechanical Data sync triggered',
+timestamp: now()
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	
+</flow>	
+	
+	<flow name="ondemand-cdc-to-staging-flow" doc:id="c6b1056a-ab2b-4ca4-9168-96d80d0d744b">
+		<http:listener doc:name="Listener" doc:id="9bba8846-448a-40d9-945f-71f19dfc8601" path="${http.listener.asset.mechanical.path.cdc}" config-ref="HTTP_Listener_config"/>
+		<json-logger:logger doc:name="log-ondemad-start" doc:id="79ac2b90-5006-468e-a852-861d2fe24004" config-ref="JSON_Logger_Config" message="#['Ondemand delta sync started']" />
+		<set-variable value="#[((attributes.queryParams.isInitialLoad == 'Y') or (attributes.queryParams.isInitialLoad == 'y'))]" doc:name="set-isInitalLoad-variable" doc:id="04cbe0e6-df8f-4d13-8e4d-713ef8aec5b9" variableName="isInitialLoad" />
+		<flow-ref doc:name="orchestrate-cdc-delta-sub-flow-ref" doc:id="ded5b7c2-9a62-413c-9b95-5bc0f37d97e5" name="orchestrate-cdc-delta-sub-flow" />
+		<json-logger:logger doc:name="log-ondemad-end" doc:id="e1a3fcd9-c359-41aa-8e1c-0087424ff4a4" config-ref="JSON_Logger_Config" message="#['Ondemand delta sync completed']" tracePoint="END" />
+	
+</flow>
+	<flow name="scheduler-staging-sf-sync-batch-flow" doc:id="7156828e-cce4-4e8a-bb1a-7497681d34ca" initialState="stopped" maxConcurrency="1">
+		<scheduler doc:name="scheduler-sync-to-sf" doc:id="98f6901a-a2f3-485b-8e69-2901f0a8c6e2" >
+			<scheduling-strategy >
+				<cron expression="${mechanical.cronExpression.sync}" />
+			
+</scheduling-strategy>
+		</scheduler>
+		<json-logger:logger doc:name="Logger" doc:id="d924036c-50d9-400e-a934-d7863882e6f2" config-ref="JSON_Logger_Config" message="#['Scheduler flow for delta sync started']"/>
+		<flow-ref doc:name="asset-mechanical-retrieve-db-recordsFlow-ref" doc:id="277e2c22-d1ca-4ef0-919b-247f85caffa4" name="asset-mechanical-retrieve-db-recordsFlow" />
+		<json-logger:logger doc:name="Logger" doc:id="dc72039f-777a-4b6c-93de-0ae8320f8b58" config-ref="JSON_Logger_Config" message="#['Scheduler flow for delta sync ended']"/>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="ba603667-acdc-4321-934c-82a079cf1141" >
+				<json-logger:logger doc:name="log-scheduler-sync-to-sf-failed-message" doc:id="89ac944e-f9f9-4758-8b7b-83f79c7db5d7" config-ref="JSON_Logger_Config" message="#['Scheduler sync to SF run failed with error : ' ++ error.detailedDescription]"/>
+			</on-error-continue>
+		</error-handler>
+	
+</flow>		
+
+	
+	<flow name="scheduler-cdc-to-staging-flow" doc:id="cebfee55-0fbc-4561-bb4c-7766c7c373e8" initialState="stopped" maxConcurrency="1">
+		<scheduler doc:name="scheduler-cdc-sync-to-staging-table" doc:id="5531e418-18db-47a8-afde-6cd73e3ec3d3" >
+			<scheduling-strategy >
+				<cron expression="${mechanical.cronExpression.cdc}" />
+			
+</scheduling-strategy>
+		</scheduler>
+		<json-logger:logger doc:name="Logger" doc:id="dac799f5-368d-45ee-8620-b51e26050a1b" config-ref="JSON_Logger_Config" message="#['Scheduler flow for cdc started']"/>
+		<flow-ref doc:name="initial-load-sub-flow" doc:id="a22393e3-2052-4c2c-9f90-cc5530ea258e" name="initial-load-sub-flow"/>
+		<flow-ref doc:name="orchestrate-cdc-delta-sub-flow-ref" doc:id="70962e36-fec0-475e-bdbd-41feaa843a9e" name="orchestrate-cdc-delta-sub-flow" />
+		<json-logger:logger doc:name="Logger" doc:id="cea49805-5a45-4a8e-8e1c-f3040b579ed8" config-ref="JSON_Logger_Config" message="#['Scheduler flow for cdc ended']"/>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="150c2742-9207-497f-8fd1-d76e1edacc75" >
+				<json-logger:logger doc:name="log-scheduler-cdc-failed-message" doc:id="86659fe2-0e96-4b8a-af3c-c55c0a547430" config-ref="JSON_Logger_Config" message="#['Scheduler cdc run failed with error : ' ++ error.detailedDescription]" tracePoint="EXCEPTION"/>
+			</on-error-continue>
+		</error-handler>
+	
+</flow>
+<!-- 	<flow name="scheduler-test-history-staging-sf-sync-batch-flow" doc:id="de01f25a-db5f-4402-b7c5-ea0c5a8fd425" >
+		<scheduler doc:name="Scheduler" doc:id="d8f44e2a-98da-42a9-8537-0b7788802f35" >
+			<scheduling-strategy >
+				<cron expression="${testHistory.cronExpression.sync}" />
+			</scheduling-strategy>
+		</scheduler>
+		<json-logger:logger doc:name="Logger" doc:id="4f34a022-e5e8-4f71-9a9d-9503acb34d35" config-ref="JSON_Logger_Config" message="#['Scheduler flow for test history started']">
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json -&#45;&#45;
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<flow-ref doc:name="Flow Reference" doc:id="4a106b3a-ce9b-44eb-aae8-ed6194086d60" name="asset-test-history-retrieve-db-recordsFlow"/>
+		<json-logger:logger doc:name="Logger" doc:id="c74cb9ab-3a99-4513-b1e9-cae9e2d297b4" config-ref="JSON_Logger_Config" message="#['Scheduler flow for test history ended']">
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json -&#45;&#45;
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+	</flow>
+	<flow name="ondemand-test-history-staging-sf-sync-batch-flow" doc:id="e21efc9f-be37-41bc-ba16-eb00b76e68f9" >
+		<http:listener doc:name="Listener" doc:id="0fbe661c-d99d-4ea7-8651-4ca9c4df7170" path="${http.listener.testhistory.sync}" config-ref="HTTP_Listener_config"/>
+		
+		<flow-ref doc:name="Batch-job" doc:id="9af6d2eb-03cf-483b-9fc6-5a55049d0f6f" name="asset-test-history-retrieve-db-recordsFlow"/>
+		<ee:transform doc:name="Transform Message" doc:id="a337e3da-943f-44e4-a251-1c4518a5771d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+-&#45;&#45;
+{
+status:'Mule application triggered',
+timestamp: now()
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	
+</flow>
+ -->
+</mule>

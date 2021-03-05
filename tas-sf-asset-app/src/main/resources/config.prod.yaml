@@ -1,0 +1,167 @@
+# Properties to be used on the Development environment
+
+# Scheduler configuration
+scheduler:
+  frequency: ""
+  start:
+    delay: ""
+
+# Batch Aggregator configuration
+page:
+  size: "100"
+  
+# Watermarking default last query timestamp e.g. 2016-12-13T03:00:59Z
+watermark:
+  default:
+    expression: ""
+
+defaultwatermark: "''"
+
+cronExpression: ""
+
+transform.flow: "transform-staging-table-specific-data-sub-flow"
+
+http: 
+  listener:
+    asset:
+      mechanical:
+        path:
+          initialload: "/batch/asset/mechanical/initialLoad"
+          sync: "/batch/asset/mechanical/sync"
+          cdc: "/batch/asset/mechanical/cdc"
+  requester:
+    tls:
+      truststore:
+        path: "/cert/asset-api.prod.ted.loc.pfx"
+        type: "pkcs12"
+        password: "Trinity.1"
+    host: 
+      asset: "asset-api.prod.ted.loc"
+    port: 
+      asset: "8443"
+    basePath: "/api"
+    path:
+      asset:
+        mechanical: "/Assets/{assetId}/Mechanical" 
+        testhistory: "/Assets/{assetId}/TestHistory"
+
+
+
+# JSON Logger configuration
+############################
+
+json:
+  logger:
+    application:
+      name: "tas-sf-asset-app"
+      version: "v1"
+
+
+# CDC tables configurations
+###############################
+
+objectTypes: "Mechanical,TestHistory"
+
+objectType:
+  cdcTables:
+    Mechanical: "dbo_tblAssetComponent,dbo_tblAssetComponentAttrib"
+    TestHistory: "dbo_tblTestResults"
+  
+
+### CDC 
+#SELECT Distinct AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblAssetComponent(sys.fn_cdc_map_time_to_lsn('largest less than or equal', '2020-07-07 01:53:16.640'),sys.fn_cdc_map_time_to_lsn('largest less than or equal', '2020-07-07 18:16:00.000'),'ALL') 
+#relational_operator possible values largest less than | largest less than or equal | smallest greater than | smallest greater than or equal }
+
+dbo_tblAssetComponent:
+  cdc:
+    lsnRelationOperator: "largest less than or equal"
+    rowFilterOption: "ALL"
+    query: "SELECT Distinct AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblAssetComponent(sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :fromLSN),sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :toLSN), :rowFilterOption) WHERE __$start_LSN > sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :fromLSN) AND __$start_LSN <= sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :toLSN)"
+    fullQuery: "SELECT DISTINCT AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblAssetComponent(:fromLSN,:toLSN, :rowFilterOption) "
+    deltaQuery: "SELECT DISTINCT AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblAssetComponent(:fromLSN,:toLSN, :rowFilterOption)  WHERE __\\$start_LSN > :fromLSN1 AND __\\$start_LSN <= :toLSN1 "
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging "
+  insert:
+    dwlfile: dwl/transformInputParamDataForAssetStagingInsert.dwl
+    query: "INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging \
+                 ([TASAssetID] \
+                 ,[APIType] \
+                 ,[Action] \
+                 ,[IntegrationStatus] \
+                 ,[MuleBatchId] \
+                 ,[Comments] \
+                 ,[CreatedBy] \
+                 ,[CreatedDate]) \
+                VALUES \
+                 (:tasAssetId \
+                 ,:apiType \
+                 ,:action \
+                 ,:integrationStatus \
+                 ,:jobName \
+                 ,:comments \
+                 ,:createdBy \
+                 ,:createdDate)"
+
+#dbo_tblAssetComponentAttrib CDC table configuration
+#####################################################
+dbo_tblAssetComponentAttrib:
+  cdc:
+    query: "SELECT DISTINCT two.AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblAssetComponentAttrib(sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :fromLSN),sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :toLSN), :rowFilterOption)  as one JOIN TAS_App.dbo.tblAssetComponent(nolock) two  on  one.RecordID = two.RecordID  WHERE __$start_LSN > sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :fromLSN) AND __$start_LSN <= sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :toLSN)"
+    fullQuery: "SELECT DISTINCT two.AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblAssetComponentAttrib(:fromLSN,:toLSN,:rowFilterOption) as one JOIN TAS_App.dbo.tblAssetComponent(nolock) two  on  one.RecordID = two.RecordID " 
+    deltaQuery: "SELECT DISTINCT two.AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblAssetComponentAttrib(:fromLSN,:toLSN,:rowFilterOption) as one JOIN TAS_App.dbo.tblAssetComponent(nolock) two  on  one.RecordID = two.RecordID  WHERE __$start_LSN > :fromLSN AND __$start_LSN <= :toLSN "
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging "
+  insert:
+    dwlfile: dwl/transformInputParamDataForAssetStagingInsert.dwl
+    query: "INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging \
+                 ([TASAssetID] \
+                 ,[APIType] \
+                 ,[Action] \
+                 ,[IntegrationStatus] \
+                 ,[MuleBatchId] \
+                 ,[Comments] \
+                 ,[CreatedBy] \
+                 ,[CreatedDate]) \
+                VALUES \
+                 (:tasAssetId \
+                 ,:apiType \
+                 ,:action \
+                 ,:integrationStatus \
+                 ,:jobName \
+                 ,:comments \
+                 ,:createdBy \
+                 ,:createdDate)"
+
+#dbo_tblTestResults CDC table configuration
+#####################################################
+
+dbo_tblTestResults:
+  cdc:
+    query: "SELECT Distinct AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblTestResults(sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :fromLSN),sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :toLSN), :rowFilterOption)  WHERE __$start_LSN > sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :fromLSN) AND __$start_LSN <= sys.fn_cdc_map_time_to_lsn(:lsnRelationOperator, :toLSN)"
+    fullQuery: "SELECT DISTINCT AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblTestResults(:fromLSN,:toLSN, :rowFilterOption) "
+    deltaQuery: "SELECT DISTINCT AssetID FROM TAS_App.cdc.fn_cdc_get_net_changes_dbo_tblTestResults(:fromLSN,:toLSN, :rowFilterOption)  WHERE __$start_LSN > :fromLSN1 AND __$start_LSN <= :toLSN1 "
+  staging:
+    table: "TAS_Support.dbo.TAS_SF_Asset_Staging "
+  insert:
+    dwlfile: dwl/transformInputParamDataForAssetTestHistoryStagingInsert.dwl
+    query: "INSERT INTO TAS_Support.dbo.TAS_SF_Asset_Staging \
+                 ([TASAssetID] \
+                 ,[APIType] \
+                 ,[Action] \
+                 ,[IntegrationStatus] \
+                 ,[MuleBatchId] \
+                 ,[Comments] \
+                 ,[CreatedBy] \
+                 ,[CreatedDate]) \
+                VALUES \
+                 (:tasAssetId \
+                 ,:apiType \
+                 ,:action \
+                 ,:integrationStatus \
+                 ,:jobName \
+                 ,:comments \
+                 ,:createdBy \
+                 ,:createdDate)"
+
+############################
+   

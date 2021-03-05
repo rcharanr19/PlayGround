@@ -1,0 +1,55 @@
+<?xml version='1.0' encoding='utf-8'?>
+<configuration>
+	<placeholders>
+		<placeholder id="template_name">Database to Salesforce Asset Mechanical Brodcast</placeholder>
+	</placeholders>
+	<sections>
+		<section id="use_case">
+As implemented, this template leverages the batch module.
+
+The batch job is divided in *Process* and *On Complete* stages.
+
+The integration is triggered by a scheduler or ondemand url defined in the flow that triggers the application.
+
+During the *Process* stage, each Salesforce user is filtered depending on if it has an existing matching user in the Database.
+The last step of the *Process* stage groups the users and inserts or updates them in Database.
+
+Finally during the *On Complete* stage the template logs output statistics data into the console.
+		</section>
+		<section id="considerations">
+
+To make this template run, there are certain preconditions that must be considered. 
+
+		</section>
+		<section id="sfdc_src">
+	src data description here	
+		</section>
+		<section id="db_dst">
+		DB description here		
+		</section>
+		<section id="running_on_standalone">
+instruction for running standalone
+		</section>
+		<section id="running_on_cloudhub">
+instruction for running on cloubhub
+		</section>
+		<section id="application_configuration">
+		environment specific configuration
+		</section>
+		<section id="api_calls">
+		
+Salesforce imposes limits on the number of API calls that can be made. Therefore calculating this amount may be an important factor to consider.
+
+		</section>
+		<section id="default_business_logic_xml">
+		
+Functional aspect of the template is implemented in this XML file. 
+
+		</section>
+		<section id="default_endpoints_xml">
+		
+executing the batch job process with the query results.
+
+		</section>
+	</sections>
+</configuration>
