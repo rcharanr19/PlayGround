@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd">
+	<configuration-properties doc:name="Configuration properties" doc:id="3e117173-ea45-4acc-8c10-deeb736e34ed" file="config.yaml" />
+	<os:object-store name="Object_store" doc:name="Object store" doc:id="847e0c0b-29e9-4128-a1c4-22d341740c98" />
+	<flow name="cdc-staging-min-lsn-flow" doc:id="e18f049c-fe58-4809-81a1-7e7ea936382f" >
+		<http:listener doc:name="Listener" doc:id="93c8b686-75ee-43d6-a56e-99a57c61478d" config-ref="HTTP_Listener_config" path="batch/minlsn"/>
+		<set-variable value="#[attributes.queryParams.tableName]" doc:name="cdcTableName" doc:id="cbaa8b48-6d3e-4a61-81a2-6acd049ba429" variableName="cdcTableName"/>
+		<logger level="INFO" doc:name="Logger" doc:id="6aca09be-2e4f-487d-b296-a3811e4aebfe" message="Table Name #[vars.cdcTableName]"/>
+		<set-variable value="#[attributes.queryParams.fromDate]" doc:name="datetime" doc:id="ab9fa889-c57a-4cd2-a3c1-666f51aa2e7f" variableName="fromDate"/>
+		<logger level="INFO" doc:name="Logger" doc:id="4582afd4-0696-4513-8a8e-9e97ac058f0b" message="Date Time #[vars.fromDate]"/>
+		<ee:transform doc:name="Transform Message" doc:id="90584368-0724-4e21-bd2f-18c920e3e1c2" >
+            <ee:message >
+                <ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+'select sys.fn_cdc_map_time_to_lsn(\'largest less than or equal\',\''  ++ vars.fromDate ++
+'\') as min_lsn']]></ee:set-payload>
+            </ee:message>
+            <ee:variables >
+            </ee:variables>
+        </ee:transform>
+        <db:select doc:name="Select" doc:id="ba96207b-590a-4357-bdb3-c1228af674af" config-ref="Shared_TasApp_Database_Config">
+            <db:sql ><![CDATA[#[payload]]]></db:sql>
+
+ 
+
+            </db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="ea652c14-f594-4a89-bf35-5b09c39de2d3" message="#[payload]"/>
+		<os:store doc:name="Store" doc:id="cdd11107-166e-4e16-b0db-1d3e1d0a87e3" key="#[vars.cdcTableName ++ '_toLsn']" objectStore="Object_store" failOnNullValue="false">
+			<os:value ><![CDATA[#[%dw 2.0
+output application/java
+import * from dw::core::Binaries
+---
+payload[0].min_lsn]]]></os:value>
+		</os:store>
+		<logger level="INFO" doc:name="Logger" doc:id="d72319e5-9785-422c-9d57-3b65e5ff2805" message="#[payload]"/>
+	</flow>
+	<flow name="cdctestFlow" doc:id="8bcb0be2-c195-4cc0-a2b1-4913e5273d7f" >
+		<http:listener doc:name="Listener" doc:id="060de354-ad73-4c3a-b211-8a93a49a4f8b" path="batch/cdcStaging" config-ref="HTTP_Listener_config"/>
+		<logger level="INFO" doc:name="Logger" doc:id="374beb3b-4bb0-4957-a053-4b98f63582e8" message="#['on demand cdc started']"/>
+		<ee:transform doc:name="Transform Message" doc:id="c4fa9916-d098-4c6f-ad58-7ec0bbade64b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+//p('objectTypes') splitBy ","
+ flatten((p('objectTypes') splitBy ",") map (p('objectType.cdcTables.' ++ $) splitBy ","))
+ ]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="29027e6a-2acb-4414-b8e6-36c041171828">
+			<!-- <db:select doc:name="Select" doc:id="99c1a809-5a5d-4b6f-89d4-a960b5f5b455" config-ref="Database_Config" target="minLsn" targetValue="#[%dw 2.0
+output application/java
+import * from dw::core::Binaries
+-&#45;&#45;
+payload[0].minLsn]">
+				<db:sql >select sys.fn_cdc_get_min_lsn('++ payload ++') as minLsn</db:sql>
+			</db:select>
+			<db:select doc:name="Select" doc:id="f38c3bd6-f768-416d-853b-f27bd2121340" config-ref="Database_Config" target="maxLsn" targetValue="#[%dw 2.0
+output application/java
+import * from dw::core::Binaries
+-&#45;&#45;
+payload[0].MaxLsn]">
+				<db:sql >select sys.fn_cdc_get_max_lsn() as MaxLsn</db:sql>
+			</db:select> -->
+			<try doc:name="Try" doc:id="516229a6-3423-491c-a1f3-72c03e146f3e">
+				<set-variable value="#[payload]" doc:name="Set Variable" doc:id="20df08ce-7235-46b6-aedc-3bd95ae702c7" variableName="cdcTableName" />
+				<logger level="INFO" doc:name="Logger" doc:id="b3b37215-a54b-4669-97da-ce62e432f415" message="#['started cdc for table: ' ++ vars.cdcTableName]" />
+				<db:select doc:name="Select_Min_LSN" doc:id="a1b8107c-4476-47a6-9323-edc346bf4cce" target="minLsn" targetValue="#[%dw 2.0
+output application/java
+---
+payload[0].minLsn]" config-ref="Shared_TasApp_Database_Config">
+				<db:sql>SELECT sys.fn_cdc_get_min_lsn(:tableName) as minLsn</db:sql>
+				<db:input-parameters><![CDATA[#[{'tableName':vars.cdcTableName}]]]></db:input-parameters>
+			</db:select>
+				<logger level="INFO" doc:name="Logger" doc:id="937d9612-020e-4f92-8fda-ff0d217dfd5c" message="#['minLsn for table ' ++ vars.cdcTableName ++ vars.minLsn]" />
+				<os:retrieve doc:name="Retrieve_From_LSN" doc:id="b98bf7f0-e59f-47c5-b37f-b7425dde7169" key="#[vars.cdcTableName ++ '_toLsn']" objectStore="Object_store" target="fromLsn">
+			</os:retrieve>
+				<logger level="INFO" doc:name="Logger" doc:id="f57fc694-2f4b-43c6-adba-fd1adb4ecc72" message="#['watermark Lsn value for table ' ++ vars.cdcTableName ++ vars.fromLsn]" />
+				<db:select doc:name="Select" doc:id="edb2f362-2872-4e80-8d4b-d1f3976dd5e5" target="maxLsn" targetValue="#[%dw 2.0
+output application/java
+---
+payload[0].maxLsn]" config-ref="Shared_TasApp_Database_Config">
+				<db:sql>SELECT sys.fn_cdc_get_max_lsn() as maxLsn</db:sql>
+			</db:select>
+				<logger level="INFO" doc:name="Logger" doc:id="ff4a6e9c-f8d2-4cd1-ad2c-d2cd9619565f" message="#['maxLsn for table ' ++ vars.cdcTableName ++ vars.maxLsn]" />
+				<os:store doc:name="Store" doc:id="b674d278-2704-4ee9-a97e-c2569920d7f7" key="#[vars.cdcTableName ++ '_toLsn']" objectStore="Object_store">
+				<os:value><![CDATA[#[vars.maxLsn]]]></os:value>
+			</os:store>
+				<ee:transform doc:name="Transform Message" doc:id="a2ffb3cd-33de-4eba-b3ef-d4df41e0db7a">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+import * from dw::core::Binaries
+---
+p(vars.cdcTableName ++ '.cdc.query')
+	 
+	
+]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+				<logger level="INFO" doc:name="Logger" doc:id="9a6d1dde-dff2-4787-80a7-912d3ae0f890" message="#['Querying database for cdc table: ' ++ vars.cdcTableName  ++ 'query: ' ++ payload default &quot;&quot;]" />
+				<db:select doc:name="Select" doc:id="8e9c5882-04ac-4db5-8c95-2fe34038af76" config-ref="Shared_TasApp_Database_Config">
+				<db:sql>#[payload]</db:sql>
+				<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java 
+import * from dw::core::Binaries
+---
+{
+'minLsn':vars.minLsn,
+'maxLsn':vars.maxLsn,
+'fromLsn':vars.fromLsn}]]]></db:input-parameters>
+			</db:select>
+				<logger level="INFO" doc:name="Logger" doc:id="5c663fb6-91e4-4d7d-badd-e8a76e9e1516" message="#[sizeOf(payload default 0) ++ ' records retrieved from cdc table: ' ++ vars.cdcTableName]" />
+				<choice doc:name="Choice" doc:id="7da4c11e-3644-4d84-a792-f45addac3ec9">
+				<when expression="#[sizeOf(payload) &gt; 0]">
+					<logger level="INFO" doc:name="Logger" doc:id="a12f07c2-e58a-4704-9cbd-bed191db1620" message="#['triggering Batch Job to load into Staging table']" />
+					<flow-ref doc:name="cdctestFlow1" doc:id="f1156358-79f2-4456-a7a4-246ad2acf121" name="cdctestFlow1" />
+				</when>
+				<otherwise>
+					<logger level="INFO" doc:name="Logger" doc:id="a412f0ee-1d99-4f93-890e-d4982a01d380" message="#['No Change Data Captured for ' ++ vars.cdcTableName]" />
+				</otherwise>
+			</choice>
+				<error-handler>
+					<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="e9faca79-337f-4cff-90ea-af4d17f8ab90" >
+						<logger level="INFO" doc:name="Logger" doc:id="f9d57d6d-0b79-45d1-975c-bce9415e7f7d" message="#[error.description]" />
+					</on-error-continue>
+				</error-handler>
+			</try>
+		</foreach>
+		<logger level="INFO" doc:name="Logger" doc:id="2c4b18bc-ffb3-44fc-a846-9e6a847c6b1a" message="#['cdc job ended for all objects']"/>
+	</flow>
+	<flow name="cdctestFlow1" doc:id="08e46ac2-775d-4a00-94fb-e0615886c458" >
+		<batch:job jobName="cdctestBatch_Job" doc:id="f598bec1-d4c1-41f4-853a-c4062c6c7834" maxFailedRecords="-1"  maxConcurrency="100" blockSize="10" >
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="abe3c113-7b44-45ab-81d7-978840eae14f" >
+					<ee:transform doc:name="Transform Message" doc:id="7a25a137-96a7-470b-bfdd-277fa1e57b06" >
+						<ee:message >
+						</ee:message>
+						<ee:variables >
+							<ee:set-variable variableName="scriptData" ><![CDATA[%dw 2.0
+output application/java
+var pathKey = "classpath://" ++ p(''++ vars.cdcTableName ++ '.insert.dwlfile')
+---
+readUrl(pathKey, "application/java")
+
+
+/*{
+	 tasAssetId: payload.AssetID
+   	,apiType:'Asset Details'
+   	,action: if (payload.operation == 5) "U" else "D"
+   	,integrationStatus: 'I'
+   	,comments: 'Synced from CDC Asset using CDC load flow'
+   	,createdDate: now() as LocalDateTime
+	,createdBy: 'cdc-tas-sf-asset-details-flow'
+	,jobName: correlationId
+}*/
+]]></ee:set-variable>
+						</ee:variables>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="5d3065c1-4a2e-4cde-aafc-d2c27bac616f" size="50000">
+						<ee:transform doc:name="Transform Message" doc:id="502a6616-b2cc-4f07-8fc0-a96eae0c2c14" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload)]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+			<logger level="INFO" doc:name="Logger" doc:id="f5449cd9-8024-4a52-af3c-40b9120888a1" message="#['Inserting records into staging table:' ++ (sizeOf(payload)  default &quot;&quot;)]" />
+						<db:bulk-insert doc:name="bulk-insert-staging-table" doc:id="7036594d-3103-4163-97d0-111270171953" config-ref="Shared_TasSupport_Database_Config">
+				<db:sql>#[p(vars.cdcTableName ++ '.staging.query')]</db:sql>
+		</db:bulk-insert>
+						<logger level="INFO" doc:name="Logger" doc:id="5eaefaf2-2488-437f-9a71-d956b840e47c" message="#['Inserted records in Mule staging table ']" />
+					
+</batch:aggregator>
+					<ee:dynamic-evaluate doc:name="Dynamic Evaluate" doc:id="863de778-062e-4a0a-b04a-95be52a3a3b3" expression="#[vars.scriptData]"/>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Logger" doc:id="b1832653-a861-49f5-8549-6845249ea119" message="#['cdc job ended: '  ++ (vars.cdcTableName default &quot;&quot;)]"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+</mule>
