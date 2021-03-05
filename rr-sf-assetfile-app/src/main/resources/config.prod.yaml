@@ -1,0 +1,6 @@
+
+sftp:
+  hostname: "rapidresponsedatatransfer.kinaxis.com"
+  username: "TRIP03_PRD2_DIS"
+  password: "jaXmUfzG6Us"
+  workingDirectory: "\\\\pintwebappfs.prod.ted.loc\\Prod\\Logs\\Mulesoft\\Asset\\app\\rr-sf-assetfile-app\\working directory\\"

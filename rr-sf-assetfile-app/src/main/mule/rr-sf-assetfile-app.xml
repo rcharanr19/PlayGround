@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:ftp="http://www.mulesoft.org/schema/mule/ftp" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ftp http://www.mulesoft.org/schema/mule/ftp/current/mule-ftp.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd">
+	<configuration-properties doc:name="Configuration properties" doc:id="ffc8228d-dda5-46e3-83c5-10c022076459" file="config.${mule.env}.yaml" />
+	<sftp:config name="SFTP_Config" doc:name="SFTP Config" doc:id="bbda917c-6770-4a98-bae7-2a5cd8b8282d" >
+	<sftp:connection host="${sftp.hostname}" username="${sftp.username}" password="${sftp.password}" connectionTimeout="20" responseTimeout="20" connectionTimeoutUnit="MINUTES" responseTimeoutUnit="MINUTES">
+			<reconnection >
+				<reconnect frequency="4000" count="4"/>
+			</reconnection>
+			<pooling-profile minEvictionMillis="60000" evictionCheckIntervalMillis="30000"/>
+			<sftp:preferred-authentication-methods >
+				<sftp:preferred-authentication-method value="PASSWORD" />
+			</sftp:preferred-authentication-methods>
+
+		</sftp:connection>
+		<expiration-policy maxIdleTime="5" timeUnit="MINUTES" />
+		
+	</sftp:config>
+	<file:config name="File_Config" doc:name="File Config" doc:id="947e75e8-a62e-45c2-80c0-e50bb7cccfd3" />
+	<flow name="rr-sf-assetfile-appFlow" doc:id="7866193a-ca2e-40cd-981c-4cc6057ac944" >
+		<sftp:listener doc:name="On New or Updated File" doc:id="2e06f260-c096-4d72-b2ae-e66905e37b91" config-ref="SFTP_Config" directory="/Outbound/tr_misc/" timeBetweenSizeCheck="5" timeBetweenSizeCheckUnit="MINUTES" outputMimeType="application/csv" autoDelete="true" applyPostActionWhenFailed="false">
+			<scheduling-strategy>
+				<fixed-frequency frequency="15" timeUnit="MINUTES" />
+			</scheduling-strategy>
+			<sftp:matcher filenamePattern="AssetFileStatus*.tab" />
+		
+</sftp:listener>
+		<try doc:name="Try" doc:id="7f2b3c64-3058-4a69-9a65-59091dac6740" >
+			<ee:transform doc:name="Transform Message" doc:id="fb3f142f-b15c-4e87-bd50-fd0861267cda">
+				<ee:message>
+				</ee:message>
+				<ee:variables >
+					<ee:set-variable variableName="MuleAssetFile" ><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+{
+RelatedTableName:"TAS_SF_AssetFile_Staging",  
+FileName:attributes.fileName,
+SourceLocation:"Rapid Response", 
+TargetLocation:"RailForce", 
+CreatedDate:integrationDate,
+IntegrationDate:integrationDate,
+CreatedBy:"rr-sf-assetfile-app",
+LastUpdatedBy:"rr-sf-assetfile-app", 
+LastUpdatedDate:integrationDate
+ }]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<file:write doc:name="Write" doc:id="c816c26f-0007-426a-a1fc-36e8c454af50" config-ref="File_Config" path="#['\\\\pintwebappfs.prod.ted.loc\\${mule.logEnvFolderMap}\\Logs\Mulesoft\\Asset\\app\\rr-sf-assetfile-app\\backup\\'  ++ 'AssetFileStatus_' ++ now() as String {format: &quot;yyyyMMdd'T'hhmms&quot;} ++ '.tab']" mode="CREATE_NEW">
+			<reconnect count="3" />
+		</file:write>
+			<db:insert doc:name="Insert" doc:id="a8b7bbe7-1325-4497-90e6-862df7a10f36" config-ref="Shared_TasSupport_Database_Config" target="DBStatus">
+			<db:sql>INSERT INTO tas_support.dbo.Mule_FileStatus_Staging 
+(RelatedTableName,  
+FileName,
+SourceLocation, 
+TargetLocation, 
+FileMoveStatus,
+Comments,
+CreatedDate,
+IntegrationDate,
+CreatedBy,
+LastUpdatedBy, 
+LastUpdatedDate)
+VALUES (:RelatedTableName,  
+:FileName,
+:SourceLocation, 
+:TargetLocation, 
+'S',
+'Succesfully backed up file',
+:CreatedDate,
+:IntegrationDate,
+:CreatedBy,
+:LastUpdatedBy, 
+:LastUpdatedDate)</db:sql>
+			<db:input-parameters><![CDATA[#[vars.MuleAssetFile]]]></db:input-parameters>
+		</db:insert>
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="377545fe-3916-43d0-81eb-8cb283d6e06b" >
+					<db:insert doc:name="Insert" doc:id="d12aa6b2-25c0-40a6-a4ea-2339e22458b3" config-ref="Shared_TasSupport_Database_Config" target="DBStatus">
+						<db:sql >INSERT INTO tas_support.dbo.Mule_FileStatus_Staging 
+(RelatedTableName,  
+FileName,
+SourceLocation, 
+TargetLocation, 
+FileMoveStatus,
+Comments,
+CreatedDate,
+IntegrationDate,
+CreatedBy,
+LastUpdatedBy, 
+LastUpdatedDate)
+VALUES (:RelatedTableName,  
+:FileName,
+:SourceLocation, 
+:TargetLocation, 
+'F',
+'File backup failed',
+:CreatedDate,
+:IntegrationDate,
+:CreatedBy,
+:LastUpdatedBy, 
+:LastUpdatedDate)</db:sql>
+						<db:input-parameters ><![CDATA[#[vars.MuleAssetFile]]]></db:input-parameters>
+					</db:insert>
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<logger level="INFO" doc:name="Logger" doc:id="9c7d17c4-adf3-444d-b556-ac50d5777a12" message="#['SFTP flow triggered :: fileName: ' ++ attributes.fileName]"/>
+		<ee:transform doc:name="Transform Message" doc:id="b1e2e566-d4ea-49b8-a010-2e925373665b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map {
+   data: $[0] splitBy("\t")
+}.data map(item,index) ->
+{
+    RFO_IntegrationId__c:item[0],
+    RFO_isInvoiced__c: if (item[1] == 'Closed') true else false,
+    fileName:attributes.fileName
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		
+</ee:transform>
+		<batch:job jobName="rr-sf-assetfile-appBatch_Job" doc:id="1b61373d-f0c7-47b1-9ccb-e0f518ef2547" maxFailedRecords="-1" blockSize="10">
+			<batch:process-records >
+				<batch:step name="Batch_Step1" doc:id="b1cda841-70ea-4056-81fa-37ebc092d840" acceptPolicy="ALL">
+					<ee:transform doc:name="Transform Message" doc:id="ec1ecc38-9cf7-4306-b3aa-444ac0493c65">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="5b98227d-a43f-4997-ba6d-f7c4866d8f5a" size="50000">
+						<ee:transform doc:name="Transform Message" doc:id="321423b5-4767-4958-b1d9-6200bce36dee">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+flatten(payload) map {
+AssetFileNumber:$.RFO_IntegrationId__c default "",
+InvoicedStatus:$.RFO_isInvoiced__c default "",
+FileName:$.fileName default "",
+IntegrationStatus:"I",
+Comments:"Inserted from rr-sf-assetfile-app",
+CreatedDate:integrationDate,
+LastUpdatedDate:integrationDate 
+ }]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="dd0ba078-eb44-4902-a98a-8504f0a3808c" message="#['Inserting records into DB: ' ++ sizeOf(payload default 0)]"/>
+						<db:bulk-insert doc:name="Bulk insert" doc:id="40d92692-c393-4b4a-9e47-d2056f39357e" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql>INSERT INTO tas_support.dbo.TAS_SF_AssetFile_Staging (AssetFileNumber, InvoicedStatus, FileName,IntegrationStatus, Comments, CreatedDate, LastUpdatedDate)
+VALUES (:AssetFileNumber, :InvoicedStatus, :FileName, :IntegrationStatus,:Comments,:CreatedDate,:LastUpdatedDate)</db:sql>
+						</db:bulk-insert>
+						<logger level="INFO" doc:name="Logger" doc:id="6f11c687-3280-46f9-a6ab-ef2c2abbfac3" message="#['Insert DB successful']" />
+					</batch:aggregator>
+				</batch:step>
+				<batch:step name="Batch_Step" doc:id="205a740d-d3be-4b42-91ea-04da3d5366e0" acceptPolicy="ALL">
+					<ee:transform doc:name="Transform Message" doc:id="5654094d-ad5d-4b49-a2e3-7368abcfc533" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="fb5320a3-f10a-455e-94e6-e8eec423b18a" size="20">
+						<ee:transform doc:name="Transform Message" doc:id="faf2d03a-37e2-44f0-bb32-99865928292c" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+
+flatten(payload)]]></ee:set-payload>
+							</ee:message>
+							<ee:variables >
+								<ee:set-variable variableName="reqSFId" ><![CDATA[%dw 2.0
+output application/java
+---
+
+"'" ++ (flatten(payload.RFO_IntegrationId__c) joinBy "','") ++ "'"]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="4b1be403-1c16-4aae-a7ca-9c2d841f83ac" message="#['Querying SF for SFID\'s: ' ++ sizeOf(payload default 0)]"/>
+						<try doc:name="Try" doc:id="23680117-41c1-4605-b3dd-ddfba61a3cea" >
+							<salesforce:query doc:name="Query" doc:id="584f3383-74d5-4850-8d9f-9f90aabb64c6" config-ref="Shared_Salesforce_Config" target="SFID">
+							<salesforce:salesforce-query>SELECT Id,RFO_IntegrationId__c FROM RFO_Asset_File__c WHERE RFO_IntegrationId__c IN (:IntegrationId)</salesforce:salesforce-query>
+							<salesforce:parameters><![CDATA[#[output application/java
+---
+{
+	"IntegrationId" : vars.reqSFId
+}]]]></salesforce:parameters>
+						</salesforce:query>
+							<logger level="INFO" doc:name="Logger" doc:id="8feaa1be-9354-472c-9137-69c88185ba18" message="#['Retrieved SFID\'s: ' ++ sizeOf(payload default 0)]" />
+							<ee:transform doc:name="Transform Message" doc:id="175537b9-8363-4758-ac2d-a8e7fd9769d1">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+
+vars.SFID map (firstInputValue) -> using (id = firstInputValue.RFO_IntegrationId__c)
+  {
+    Id : firstInputValue.Id,
+    RFO_IntegrationId__c:id,
+  
+    (payload filter ($.RFO_IntegrationId__c == id)  map (secondInputValue) -> {
+     RFO_isInvoiced__c: secondInputValue.RFO_isInvoiced__c
+    })
+  }
+]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+							<logger level="INFO" doc:name="Logger" doc:id="d1a9226a-75e6-48bb-88d9-eaacfdd5dcd9" message="#['updating SF: ' ++ sizeOf(payload default 0)]" />
+							<logger level="INFO" doc:name="Logger" doc:id="5ed76a28-beff-4b43-9bea-0769a4a6c533" message="#[%dw 2.0
+output application/json
+---
+payload]"/>
+							<salesforce:update doc:name="Update" doc:id="c904328b-93b4-48e1-b87f-dcc63d61cdbc" config-ref="Shared_Salesforce_Config" type="RFO_Asset_File__c" />
+							<error-handler >
+								<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="13af0d9d-7f77-4c99-907d-27e428bc332d" >
+									<ee:transform doc:name="Transform Message" doc:id="d1008ac4-311d-41ec-aca8-53c777234d0c" >
+										<ee:message >
+											<ee:set-payload ><![CDATA[%dw 2.0
+output application/json skipNullOn="everywhere"
+---
+using(integrationDate = now() as LocalDateTime)
+    payload map {
+      AssetFileNumber:$.RFO_IntegrationId__c,
+      IntegrationStatus:"F",
+	  Comments:"Updated to SF Failed",
+	  LastUpdatedDate:integrationDate  
+
+  }
+]]></ee:set-payload>
+										</ee:message>
+									</ee:transform>
+									<db:bulk-update doc:name="Bulk update" doc:id="2b03eb9c-149b-43cc-80dc-16ad5141b8e0" config-ref="Shared_TasSupport_Database_Config">
+										<db:sql >UPDATE 
+tas_support.dbo.TAS_SF_AssetFile_Staging set IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate
+WHERE AssetFileNumber= :AssetFileNumber</db:sql>
+									</db:bulk-update>
+								</on-error-propagate>
+							</error-handler>
+						</try>
+						<logger level="INFO" doc:name="Logger" doc:id="e0d27996-3d8d-47f6-9d03-4fbb5420429c" message="#['updated SF: ' ++ sizeOf(payload.items.id default 0)]"/>
+						<logger level="INFO" doc:name="Logger" doc:id="a894e4d5-102f-4739-801a-92bb329471a9" message="#[%dw 2.0
+output application/json
+---
+payload]"/>
+						<ee:transform doc:name="Transform Message" doc:id="109fe4cf-2dac-4112-991b-922881a397a5" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json skipNullOn="everywhere"
+---
+using(integrationDate = now() as LocalDateTime)
+payload map (i,index) -> {
+RFRecordId:i.id  default "",
+IntegrationStatus:if (i.success == true) "S" else "F",
+Comments:if (i.success == true) "Upsert to SF Successful" else ((i.errors.message)[0] ++ " for Field:" ++ (i.errors.fields[0])[0] default""),
+LastUpdatedDate:integrationDate,
+(vars.SFID filter ($$ == index) map {
+    AssetFileNumber:$.RFO_IntegrationId__c  default ""
+})
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="0020a7d0-a3a0-4452-b39b-1afaa9f1f8c1" message="#['updating DB with records']" />
+						<logger level="INFO" doc:name="Logger" doc:id="77347e79-ccd3-463e-831d-f90b18a5a526" message="#[%dw 2.0
+output application/json
+---
+payload]"/>
+						<db:bulk-update doc:name="Bulk update" doc:id="b380bb0f-9c98-4f58-a1db-bdf917d08102" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql >UPDATE tas_support.dbo.TAS_SF_AssetFile_Staging set RFRecordId=:RFRecordId,
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate WHERE AssetFileNumber= :AssetFileNumber</db:sql>
+						</db:bulk-update>
+						<logger level="INFO" doc:name="Logger" doc:id="3a179e30-b59e-4afc-a7f3-ae51d60d6017" message="#['Updating DB complete']"/>
+					
+</batch:aggregator>
+				</batch:step>
+			
+</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Logger" doc:id="dbe23633-e2bb-400f-a845-9a8823a0310f" message="#['Asset File status integration complete']"/>
+			</batch:on-complete>
+		
+</batch:job>
+	</flow>
+</mule>
