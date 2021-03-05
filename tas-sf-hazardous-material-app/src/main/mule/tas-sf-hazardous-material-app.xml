@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd">
+	<file:config name="File_Config" doc:name="File Config" doc:id="4522b80b-92ae-407d-ba27-f4b77854fb3b" />
+	<sftp:config name="SFTP_Config" doc:name="SFTP Config" doc:id="bfb87ccb-5092-4c10-b807-1ea3ab1da992" >
+		<sftp:connection host="${sftp.hostname}" username="${sftp.username}" identityFile="${mule.home}/apps/${app.name}\imulesftp-Key.ppk" connectionTimeoutUnit="MINUTES" connectionTimeout="${sftp.connectionTimeout}" responseTimeout="120">
+			<reconnection >
+				<reconnect frequency="4000" count="4"/>
+			</reconnection>
+			<pooling-profile minEvictionMillis="60000" evictionCheckIntervalMillis="30000"/>
+			<sftp:preferred-authentication-methods >
+				<sftp:preferred-authentication-method value="PUBLIC_KEY" />
+			</sftp:preferred-authentication-methods>
+		</sftp:connection>
+
+	</sftp:config>
+	<configuration-properties doc:name="Configuration properties" doc:id="dc762262-4331-41a7-900c-de327deb4b74" file="config.${mule.env}.yaml" />
+	<flow name="tas-sf-hazardous-material-appFlow" doc:id="5135556e-61ca-42df-9810-897a15bd080e" >
+		<!-- <file:listener doc:name="On New or Updated File" doc:id="e46fa343-c18b-4218-8e25-e9564ee0036e" config-ref="File_Config" directory="C:\Users\suramr\Desktop\rapidresponse\source" outputMimeType='application/csv; separator="\\t,"' timeBetweenSizeCheck="1" timeBetweenSizeCheckUnit="MINUTES">
+			<scheduling-strategy >
+				<fixed-frequency frequency="5" timeUnit="MINUTES" />
+			</scheduling-strategy>
+		</file:listener> -->
+		<sftp:listener doc:name="On New or Updated File" doc:id="bfc96bf9-ada6-4adb-b70c-0107f5759de3" config-ref="SFTP_Config" directory="${sftp.sourceDirectory}" outputMimeType='text/plain' timeBetweenSizeCheck="2" timeBetweenSizeCheckUnit="MINUTES" autoDelete="true" applyPostActionWhenFailed="false">
+			<scheduling-strategy >
+				<cron expression="${cronExpression}"/>
+			</scheduling-strategy>
+		</sftp:listener>
+		<logger level="INFO" doc:name="Logger" doc:id="fca3f843-0417-4bf4-89ac-83f68995a618" message="#['File retrieved successfully: ' ++ attributes.fileName]"/>
+		<file:write doc:name="Write" doc:id="addd2622-5a73-42fd-a51b-acfcc155276f" config-ref="File_Config" path="#['\\\\pintwebappfs.prod.ted.loc\\\\${mule.logEnvFolderMap}\\Logs\\Mulesoft\\UNcode\\app\\tas-sf-hazardous-material-app\\backup\\\'' ++ now() as String {format: &quot;yyyyMMdd'T'hhmms&quot;} ++ '_' ++ attributes.fileName]" mode="CREATE_NEW">
+			<file:content ><![CDATA[#[%dw 2.0
+output text/plain
+---
+payload]]]></file:content>
+		</file:write>
+		<logger level="INFO" doc:name="Logger" doc:id="cac09dce-88c5-4852-85fd-569a043eda6a" message="#['Backup successful for file: ' ++ attributes.fileName]"/>
+		<db:insert doc:name="Insert" doc:id="edeef874-c148-478a-a36a-588ec97eb381" config-ref="Shared_TasSupport_Database_Config" target="DB">
+			<db:sql>INSERT INTO tas_support.dbo.Mule_FileStatus_Staging 
+(RelatedTableName,  
+FileName,
+SourceLocation, 
+TargetLocation, 
+FileMoveStatus,
+Comments,
+CreatedDate,
+IntegrationDate,
+CreatedBy,
+LastUpdatedBy, 
+LastUpdatedDate)
+VALUES (:RelatedTableName,  
+:FileName,
+:SourceLocation, 
+:TargetLocation, 
+:FileMoveStatus,
+:Comments,
+:CreatedDate,
+:IntegrationDate,
+:CreatedBy,
+:LastUpdatedBy, 
+:LastUpdatedDate)</db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+{
+RelatedTableName:"TAS_SF_Hazardous_Material_Staging",  
+FileName:attributes.fileName,
+SourceLocation:"tas", 
+TargetLocation:"RailForce", 
+FileMoveStatus:"S",
+Comments:"Success",
+CreatedDate:integrationDate,
+IntegrationDate:integrationDate,
+CreatedBy:"TAS_SF_Hazardous_Material_Staging",
+LastUpdatedBy:"TAS_SF_Hazardous_Material_Staging", 
+LastUpdatedDate:integrationDate
+ }]]]></db:input-parameters>
+		</db:insert>
+		<logger level="INFO" doc:name="Logger" doc:id="2fdd8487-8316-42ec-a6b9-4c6d2b594a9e" message="#['Updated MuleFileStatus table for file: ' ++ attributes.fileName]" />
+		<ee:transform doc:name="Transform Message" doc:id="0da07f75-9d22-4166-8e8d-6949779b80d0">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+input payload text/plain //separator = '\n'
+---
+(payload splitBy '\n' ) map {
+    (payload01:($ splitBy '\t' ))
+}.payload01 map(item,index) ->
+{
+	"Shipping Name":item[0] default "",	
+	"Hazard Class":item[1] default "",	
+	"UN Code":item[2] default "",
+	"UN Number":item[3] default "",	
+	"Packing Group":item[4] default "",	
+	"Special Provisions":item[5] default "",	
+	"Bulk Packing":item[6] default "" splitBy ",",
+	"fileName":attributes.fileName
+	
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="12a8aaa7-d35c-4d92-ac70-4029042bd51f" message="#[payload]"/>
+		<batch:job jobName="tas-sf-hazardous-material-appBatch_Job" doc:id="6296f0dc-b8f5-4575-a28a-81879db9b62f" blockSize="10" maxFailedRecords="-1">
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="2d83dbc8-1c5c-43c1-92b6-26557079d796" acceptPolicy="ALL">
+					<ee:transform doc:name="Transform Message" doc:id="eff15151-9e0b-4c6f-9763-ac0a88c13053">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="3024db9d-7982-47d6-b717-e1f2ed922541" size="50000">
+						<logger level="INFO" doc:name="Logger" doc:id="96a426ad-af85-43d1-b1cf-bd86814fda32" message="#[payload]"/>
+						<ee:transform doc:name="Transform Message" doc:id="e603df8c-7445-4ffd-a8a9-676cb99a3717">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+flatten(payload map  {
+  ($."Bulk Packing" map  (payload01,indexofr) ->{
+   
+    DataLoadId: ($."UN Code" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    }) ++ '-' ++ (payload01 default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    }) 
+    }),
+    FileName:$.fileName,
+IntegrationStatus:"I",
+Comments:"Inserted from tas-sf-hazardous-material-app",
+CreatedDate:integrationDate,
+LastUpdatedDate:integrationDate })]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="a2206a0c-578b-42fb-aa89-4ef2fa573fc1" message="#['Inserting records into DB: ' ++ sizeOf(payload default 0)]"/>
+						<logger level="INFO" doc:name="Logger" doc:id="aec6cfe4-0706-4931-bde3-2432fa86da09" message="#[%dw 2.0
+output application/json
+---
+payload]"/>
+						<db:bulk-insert doc:name="Bulk insert" doc:id="19c8fc48-4447-4b36-84df-26d036a10407" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql>INSERT INTO tas_support.dbo.TAS_SF_Hazardous_Material_Staging (DataLoadId, FileName,IntegrationStatus, Comments, CreatedDate, LastUpdatedDate)
+VALUES (:DataLoadId, :FileName, :IntegrationStatus,:Comments,:CreatedDate,:LastUpdatedDate)</db:sql>
+						</db:bulk-insert>
+						<logger level="INFO" doc:name="Logger" doc:id="88b73cf8-8096-4cc9-9b57-cf8e4db2e561" message="#['Insert DB successful']" />
+					</batch:aggregator>
+				</batch:step>
+				<batch:step name="Batch_Step1" doc:id="18d8ef31-efcd-49c9-a96a-b442eecdb92f" >
+					<ee:transform doc:name="Transform Message" doc:id="6c253312-eee5-4657-a3a5-a0d87a2e7f66" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java 
+---
+payload]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="27516218-b6fa-448d-875e-c73b7a123909" size="20">
+						<ee:transform doc:name="Transform Message" doc:id="f54cd937-4c62-4534-9a34-cfbde3fe3c40" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload map  
+  ($."Bulk Packing" map  (payload01,indexofr) ->{
+    "Bulk_Packing__r":{
+    	"type":"Bulk_Packing__c",
+    "Bulk_Packing__c":payload01 default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    }},
+    Bulk_Packing_Footnote__c:payload01 default "" match {
+	case word matches /.*;ct(.*);ctend.*/ ->  word[1]
+    else -> ""
+    },
+		
+    "Shipping_Name__c": $."Shipping Name" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    },
+    "Shipping_Name_Footnote__c":$."Shipping Name" default "" match {
+	case word matches /.*;ct(.*);ctend.*/ ->  word[1]
+    else -> ""
+    },
+    "Hazard_Class__c": $."Hazard Class" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    },
+    Hazard_Class_Footnote__c:$."Hazard Class" default "" match {
+	case word matches /.*;ct(.*);ctend.*/ ->  word[1]
+    else -> ""
+    },
+    "UN_Code__c": $."UN Code" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    },
+	UN_Code_Footnote__c:$."UN Code" default "" match {
+	case word matches /.*;ct(.*);ctend.*/ ->  word[1]
+    else -> ""
+    },
+    "UN_Number__c": $."UN Number" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    },
+    "Packing_Group__c": $."Packing Group" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    },
+    Packing_Group_Footnote__c:$."Packing Group" default "" match {
+	case word matches /.*;ct(.*);ctend.*/ ->  word[1]
+    else -> ""
+    },
+    "Special_Provisions__c": $."Special Provisions" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    },
+	Special_Provisions_Footnote__c: $."Special Provisions" default "" match {
+	case word matches /.*;ct(.*);ctend.*/ ->  word[1]
+    else -> ""
+    },
+    Data_Load_Id__c: ($."UN Code" default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    }) ++ '-' ++ (payload01 default "" match {
+	case word matches /(.*);ct.*ctend,(.*)/ ->  word[1] ++ word[2]
+	else -> $
+    }) 
+    }))]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="c76e3723-0e5e-44d1-a400-41ffa503917c" message="#['Upserting data in SF Object Hazardous_Material__c: ' ++ (sizeOf(payload) default &quot;&quot;)]"/>
+						<try doc:name="Try" doc:id="e9ed5c53-fa30-4950-bb25-d903874d675c" >
+							<salesforce:upsert doc:name="Upsert" doc:id="d96c1818-b49d-47ee-8d60-e2bcd2235147" config-ref="Shared_Salesforce_Config" externalIdFieldName="Data_Load_Id__c" type="Hazardous_Material__c" target="SFID"/>
+							<error-handler >
+								<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="d8b4d30c-19d2-4b91-8764-ce15c016c2f5" >
+									<ee:transform doc:name="Transform Message" doc:id="f02fec26-b2bb-4ebf-aa5c-db7925ae1bf3" >
+										<ee:message >
+											<ee:set-payload ><![CDATA[%dw 2.0
+output application/json skipNullOn="everywhere"
+---
+using(integrationDate = now() as LocalDateTime)
+    payload map {
+      DataLoadId:$.Data_Load_Id__c,
+      IntegrationStatus:"F",
+	  Comments:error.exception.exceptionMessage,
+	  LastUpdatedDate:integrationDate  
+
+  }
+]]></ee:set-payload>
+										</ee:message>
+									</ee:transform>
+									<db:bulk-update doc:name="Bulk update" doc:id="730eee74-5c26-4f36-8bc2-e3d08ba626e9" config-ref="Shared_TasSupport_Database_Config">
+										<db:sql >UPDATE 
+tas_support.dbo.TAS_SF_Hazardous_Material_Staging set  
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate
+WHERE DataLoadId= :DataLoadId</db:sql>
+									</db:bulk-update>
+								</on-error-propagate>
+							</error-handler>
+						</try>
+						<logger level="INFO" doc:name="Logger" doc:id="8ecd08ae-e4b4-421d-97b2-a919f5a2f4e3" message="#['Data insert Successful: ' ++ (sizeOf(payload) default &quot;&quot;)]" />
+						<ee:transform doc:name="Transform Message" doc:id="0e771d80-083b-4f38-a5a8-cee0b62b081b" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+vars.SFID map (i,index) -> {
+	RFRecordId:i.id,
+	IntegrationStatus:if (i.success == true) "S" else "F",
+Comments:if (i.success == true) "Upsert to SF Successful" else (i.errors.message)[0],
+	LastUpdatedDate:integrationDate, 
+(payload filter ($$ == index) map {
+    DataLoadId:$.Data_Load_Id__c default ""
+})
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="86ce051f-5788-42ac-9c63-841c229e94b5" message="#[payload]"/>
+						<db:bulk-update doc:name="Bulk update" doc:id="210774b3-f8e7-4cb6-b8f5-8d30b6a46b96" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql >UPDATE 
+tas_support.dbo.TAS_SF_Hazardous_Material_Staging set  
+RFRecordId=:RFRecordId,
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate
+WHERE DataLoadId= :DataLoadId</db:sql>
+						</db:bulk-update>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Logger" doc:id="1e85f512-3aa8-4dbc-9477-067305fbdb30" message="#['Hazardous material sync job complete']"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+</mule>
