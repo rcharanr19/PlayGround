@@ -1,0 +1,52 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:tls="http://www.mulesoft.org/schema/mule/tls" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns="http://www.mulesoft.org/schema/mule/core"
+    xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:os="http://www.mulesoft.org/schema/mule/os"
+    xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd  http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd">
+
+    <global-property doc:name="Global Property" name="mule.env" value="local" doc:description="Default environment value"/>
+
+    <configuration-properties file="config.${mule.env}.yaml" doc:id="92066a2e-d0e1-44b4-b329-786839fafeab" doc:name="Configuration properties" doc:description="Environment specific configurations"/>
+
+	<os:object-store name="cdc_object_store" doc:name="Object store" doc:id="61f1e6f1-9137-406b-98fa-d934ba244edf" doc:description="CDC Object store configurations"/>
+
+	<json-logger:config name="JSON_Logger_Config" doc:name="JSON Logger Config" doc:id="d8d050fb-c4a8-4ade-b964-5a5bdb77a553" environment="${mule.env}" doc:description="JSON Logger configuration"/>
+	
+	<tls:context name="Asset_TLS_Context" doc:name="TLS Context" doc:id="2029086a-5cfa-46a2-be6c-3efedb85d338" doc:description="Asset .NET API TLS Configurations">
+		<tls:trust-store insecure="true" />
+	</tls:context>
+
+	<http:request-config name="Asset_HTTPS_Request_configuration" doc:name="HTTP Request configuration" doc:id="e051b9f9-49bb-41ea-ad6a-120c746cd27a" doc:description="Asset.API HTTP Request configuration">
+		<http:request-connection host="${http.requester.host.asset}" port="${http.requester.port.asset}" tlsContext="Asset_TLS_Context" protocol="HTTPS"/>
+	</http:request-config>
+	<os:object-store name="Object_store" doc:name="Object store" doc:id="ed200a17-4a03-489f-80fe-dcbd5c20d5ee" />
+<http:request-config name="HTTP_Request_configuration_TestHistory" doc:name="HTTP Request configuration" doc:id="2b79e150-191b-4c3e-8d0a-19971876ee6a" >
+		<http:request-connection host="${http.requester.tas.testhistory.host}" port="${http.requester.tas.testhistory.port}" protocol="HTTPS">
+			<tls:context >
+				<tls:trust-store insecure="true" />
+			</tls:context>
+		</http:request-connection>
+	</http:request-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="c4fab176-9bae-4abd-a038-53a2b7adeabe" file="config.TestHistory.${mule.env}.yaml" doc:description="Test history config"/>
+	<configuration-properties doc:name="Configuration properties" doc:id="9a6133ff-85e2-4f1e-91f9-5edaefd2d72d" file="config.AssetMechanical.${mule.env}.yaml" doc:description="Test history config"/>
+
+<!-- 
+    <salesforce:sfdc-config name="Salesforce_Sfdc_config" doc:id="9438fc7f-eba4-4916-a62d-f7f9f8bca55f" doc:name="Salesforce Sfdc config">
+        <salesforce:basic-connection password="${sfdc.password}" securityToken="${sfdc.securityToken}" username="${sfdc.username}" url="https://test.salesforce.com/services/Soap/u/43.0"/>
+    </salesforce:sfdc-config>
+
+    <db:config name="Database_Config" doc:id="5af8d841-b61b-46a6-94f5-7d1b5868e47c" doc:name="Database Config">
+		<db:generic-connection url="jdbc:sqlserver://trintsql4.trin.dev:1433;database=TAS_Support;user=Dev_User;password=crystal;" driverClassName="com.microsoft.sqlserver.jdbc.SQLServerDriver">
+			<db:pooling-profile />
+		</db:generic-connection>
+    </db:config>
+    
+	<db:config name="TAS_APP_Database_Config" doc:name="Database Config" doc:id="1ea3d259-7186-49de-9f98-97320ef4fb32" >
+		<db:generic-connection url="jdbc:sqlserver://trintsql4.trin.dev:1433;database=TAS_Support;user=Dev_User;password=crystal;" driverClassName="com.microsoft.sqlserver.jdbc.SQLServerDriver"/>
+	</db:config>
+ -->
+ 
+</mule>

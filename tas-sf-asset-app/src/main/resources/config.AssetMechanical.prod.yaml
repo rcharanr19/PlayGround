@@ -1,0 +1,27 @@
+defaultwatermark: "''"
+
+mechanical:
+  cronExpression: 
+    sync: "0 0 3 ? * * *"
+    cdc: "0 30 2 ? * * *"
+    initialLoad: "0 0 2 ? * * *"
+    
+    
+http:
+  requester:
+    tas:
+      mechanical:
+        host: "asset-rf.prod.ted.loc"
+        port: "8443"
+        path: "/api/Assets/{assetId}/Mechanical"
+        
+  listener:
+    mechanical:
+      sync: "/batch/asset/mechanical/sync"
+
+mechanical.database:
+  retrieve: "select distinct TASAssetID from TAS_SF_Asset_Staging where APIType = 'Mechanical' and IntegrationStatus NOT IN ('S','F','P')" 
+  update: "UPDATE TAS_SF_Asset_Staging SET IntegrationStatus = :IntegrationStatus, RFBatchId= :SFID, MuleBatchId = :MuleBatchId, LastUpdatedDate = :lastUpdatedDate, IntegrationDate = :integrationDate, LastUpdatedBy = :lastUpdatedBy, Comments = :comments WHERE TASAssetId = :ID and APIType = 'Mechanical'"
+  
+ 
+  

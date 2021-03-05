@@ -1,0 +1,28 @@
+defaultwatermark: "''"
+
+cronExpression:
+  sync: "0 0 8-18 ? * * *"
+  cdc: "0 0/30 8-18 ? * * *"
+  
+testHistory:
+  cronExpression: 
+    sync: "0 15/30 8-18 ? * * *"
+    
+http:
+  requester:
+    tas:
+      testhistory:
+        host: "asset-rf.dev.prod.ted.loc"
+        port: "8443"
+        path: "/api/Assets/{assetId}/TestHistory"
+  listener:
+    testhistory:
+      sync: "/batch/asset/testhistory/sync"
+    
+
+testHistory.database:
+  retrieve: "select distinct TASAssetID from TAS_SF_Asset_Staging where APIType = 'TestHistory' and IntegrationStatus NOT IN ('S','F','P')" 
+  update: "UPDATE TAS_SF_Asset_Staging SET IntegrationStatus = :IntegrationStatus, RFBatchId= :SFID, MuleBatchId = :MuleBatchId, LastUpdatedDate = :lastUpdatedDate, IntegrationDate = :integrationDate, LastUpdatedBy = :lastUpdatedBy, Comments = :comments WHERE TASAssetId = :ID and APIType = 'TestHistory'"
+ 
+  
+  

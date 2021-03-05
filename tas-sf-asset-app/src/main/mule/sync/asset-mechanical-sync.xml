@@ -1,0 +1,1108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:tls="http://www.mulesoft.org/schema/mule/tls"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+
+	<flow name="mechanical-batch-orchestrate-flow" doc:id="b4423544-956e-477e-8205-2f9e7fedd42f" >
+		<ee:transform doc:name="Transform Message" doc:id="b50ac41d-6f21-47d2-922b-dbfcaf1945dd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+(
+	(
+		(payload default []) groupBy $.TASAssetID
+	) mapObject {
+		($$): ($ orderBy $.Id)[0]
+	}
+) pluck $]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<batch:job jobName="tas-sf-asset-mechanical-job" doc:id="6ed1ecfb-4c21-4870-80fe-5203a8be2f2b" maxFailedRecords="-1" maxConcurrency="25">
+			<batch:process-records>
+				<!-- 
+				<batch:step name="get-mechanical-data-step" doc:id="2e7a6532-e166-47c5-ae2a-bff1aa101113">
+				 -->
+				<batch:step name="mechanical-data-step" doc:id="de6ac978-9d94-4329-9b08-095d2abdc770">
+				
+					<json-logger:logger-scope doc:name="log-scope-for-get-mechanical-step" doc:id="eed6238a-2f58-4654-bdbd-105b3c2ddc29">
+						<flow-ref doc:name="set-unique-record-id-sub-flow-ref" doc:id="179aa526-9d69-46a2-8914-7abfdff63372" name="set-unique-record-id-sub-flow" />
+					</json-logger:logger-scope>
+					<json-logger:logger-scope doc:name="log-scope-for-get-mechanical-step" doc:id="94009673-917e-493a-befb-96c4efabefa8">
+						<flow-ref doc:name="get-mechanical-data-sub-flow-ref" doc:id="7d331b7e-cfdf-468f-8694-b4b37ec1432c" name="get-mechanical-data-sub-flow" />
+					</json-logger:logger-scope>
+					<json-logger:logger-scope doc:name="log-scope-for-transform-step" doc:id="cc73e079-8db1-491e-929f-71df52139b99" scopeTracePoint="DATA_TRANSFORM_SCOPE">
+						<flow-ref doc:name="transform-asset-mechanical-record-sub-flow-ref" doc:id="ddd73834-28b7-46b7-80b4-c9094ac81abe" name="transform-asset-mechanical-record-sub-flow" />
+						<!-- 
+						<flow-ref doc:name="transform-mechanical-saleforce-object-sub-flow-ref" doc:id="1d7c2722-e042-4e5b-87b4-eb2f7b0795a1" name="transform-mechanical-saleforce-object-sub-flow" />
+						-->
+					</json-logger:logger-scope>	
+				<!-- 	
+				</batch:step>
+				<batch:step name="salesforce-and-staging-aggregator-step" doc:id="d4cdf129-7480-4a18-9f56-13768afbad99">
+				 -->
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="5e17b76c-ffb2-4deb-8558-09cb70ae05c5" size="100">
+						<json-logger:logger-scope doc:name="log-scope-for-transform-step" doc:id="61f75489-575a-4cea-aa5e-0801700f621d" category="salesforce-and-staging-table">
+						<!-- 	
+							<flow-ref doc:name="asset-mechanical-salesforce-upsert-sub-flow-ref" doc:id="8b538f63-ca16-4198-8c7b-464b3ccbdd78" name="asset-mechanical-salesforce-upsert-individual-sub-flow" />
+						 -->	
+							<flow-ref doc:name="asset-mechanical-salesforce-upsert-sub-flow-ref" doc:id="7e36ecb2-3874-4d8e-acbf-67eb4bf8e7ee" name="asset-mechanical-salesforce-upsert-sub-flow" />
+						</json-logger:logger-scope>
+						<json-logger:logger-scope doc:name="log-scope-for-transform-step" doc:id="37c8743b-b204-4cf1-be18-d02de1a70f42">
+							<flow-ref doc:name="update-records-to-staging-table-sub-flow-ref" doc:id="afd798e1-69d1-42c5-93f3-9ba4cb3bcf5c" name="update-records-to-staging-table-sub-flow" />
+						</json-logger:logger-scope>
+					</batch:aggregator>
+				</batch:step>	
+				<batch:step name="mechanical-batch-failure-step" doc:id="b3d5b039-a684-4ded-95be-1a6cc6760cd0" acceptPolicy="ONLY_FAILURES">
+					<flow-ref doc:name="mechanical-failure-record-transform-sub-flow-ref" doc:id="18e63fd1-bcaa-4c48-92ec-c4789bb27aa5" name="mechanical-failure-record-transform-sub-flow" />
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="01e0711b-cf63-4cfc-b827-1b1fba462658" size="${page.size}">
+						<flow-ref doc:name="update-records-to-staging-table-sub-flow-ref" doc:id="74cde3c3-08b2-419e-a306-54c4a5eb32c9" name="update-records-to-staging-table-sub-flow" />
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete>
+				<ee:transform doc:name="Prepare Asset Mechanical Report" doc:id="bf4fb3eb-8501-4981-a386-3f84e9972d79">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output text/plain
+---
+"Migration Report: \n"
+ 
+++ "\n Time [milliseconds]: " 		++ payload.elapsedTimeInMillis!
+++ "\n Total Records: "				++ payload.totalRecords!
+++ "\n Successful Records: "		++ payload.successfulRecords!
+++ "\n Failed Records: "			++ payload.failedRecords!
+++ "\n Loaded Records: "			++ payload.loadedRecords!
+++ "\n Processed Records: " 		++ payload.processedRecords!]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-sync-process-end" doc:id="11f57d2a-32f6-4216-8038-463eaba778f1" config-ref="JSON_Logger_Config" message="Asset Mechanical Sync process has finished!" />
+			</batch:on-complete>
+		</batch:job>
+		<ee:transform doc:name="Transform Message" doc:id="baa92adb-1fc4-436f-8b18-e3bb0f469c31" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<sub-flow name="set-unique-record-id-sub-flow" doc:id="77fb04db-c3df-422d-826c-709312aea2c9" >
+		<json-logger:logger-scope doc:name="Logger scope" doc:id="3b64606b-a322-46bf-b5b3-5b209c40d242" >
+			<salesforce:query doc:name="get-sf-assetid-for-tasid" doc:id="597ffe24-841e-4b09-a3d7-bc0efe6b56b5" config-ref="Shared_Salesforce_Config" target="sfAssetInfo" targetValue="#[payload[0] default {}]">
+			<salesforce:salesforce-query>SELECT Id, AccountId FROM Asset where RFO_TASId__c= ':tasAssetId'</salesforce:salesforce-query>
+			<salesforce:parameters><![CDATA[#[output application/java
+---
+{
+	"tasAssetId" : payload.TASAssetID as String
+}]]]></salesforce:parameters>
+		</salesforce:query>
+			<ee:transform doc:name="set-record-id" doc:id="209cc680-340d-45a7-916d-75c6ea67abaa">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="batchRecord"><![CDATA[%dw 2.0
+output application/java
+---
+{
+	//id: uuid(),
+	//salesforceAssetId: vars.sfAssetId
+
+	id: uuid(),
+	salesforceAssetId: vars.sfAssetInfo.Id default null,
+	salesforceAssetAccountId: vars.sfAssetInfo.AccountId,
+	salesforceA: vars.sfAssetInfo
+}
+++ payload
+
+]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-unique-record-end" doc:id="65e780ae-a2f3-4ff6-a048-a7d7d23cdc7d" config-ref="JSON_Logger_Config" tracePoint="END" message="#['Unique recordId  : ' ++ vars.batchRecord.id ++ ' : ' ++ write(vars.batchRecord, 'applicaiton/java')]" />
+		</json-logger:logger-scope>
+	</sub-flow>
+	<sub-flow name="update-records-to-staging-table-sub-flow" doc:id="8ca76437-c777-4095-abdc-1bccffabd564" >
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-bulk-db-update-request-start" doc:id="b77623d4-6cfc-4352-8a44-aeff4ba118ac" config-ref="JSON_Logger_Config" message="#['Records for update staging table request : ' ++ write(payload,'application/java') ]"/>
+		<try doc:name="Try" doc:id="d91f8064-428f-47b6-b470-f35a2fe8327f">
+				<json-logger:logger-scope doc:name="log-scope-for-update-staging-db-call" doc:id="5b26f54a-798f-4bbc-b3ee-4c328e56fe93" >
+				<db:bulk-update doc:name="records-bulk-update-to-staging-table" doc:id="f96964bd-ee85-4598-a416-0c03fedaef1d" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql>update TAS_SF_Asset_Staging set IntegrationStatus= :integrationStatus,
+MulebatchId = :batchJobInstanceId,
+Comments= :comments,
+IntegrationDate= :integrationDate,
+LastupdatedBy= :lastUpdatedBy,
+LastUpdatedDate= :lastUpdatedDate,
+NoOfAttempts = :recordAttempts,
+RFRecordId = :railforceRecordId,
+RFBatchId = :railforceBatchId
+where TASAssetID = :tasAssetId and APIType = :apiType 
+
+
+</db:sql>
+						</db:bulk-update>
+			</json-logger:logger-scope>
+							<error-handler>
+								<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="56f77c05-60b6-4ab4-affc-fdd89c4f6a24">
+									<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-failure-for-failed-recordIds" doc:id="09f13fc2-1e6b-4ace-a011-89f187b63012" config-ref="JSON_Logger_Config" message="#['Records bulk update got failed : ' ++  error.detailedDescription]" tracePoint="EXCEPTION" />
+								</on-error-continue>
+							</error-handler>
+						</try>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-bulk-db-update-request-end" doc:id="4f8d899d-7634-4db3-a013-d77b466b3f19" config-ref="JSON_Logger_Config" message="#['Successfully updated records in staging table ']" />
+	</sub-flow>
+
+	<sub-flow name="mechanical-failure-record-transform-sub-flow" doc:id="fd291c2f-333a-4c84-8d8b-f1e426ae5bc3" >
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-failure-step-request" doc:id="15631777-44d0-4ef2-96d1-fe119722e16e" config-ref="JSON_Logger_Config" message="#['Recieved request in failure step for recordId : ' ++ vars.batchRecord.id]" />
+		<ee:transform doc:name="transform-record-failure-message" doc:id="a5f42e8e-d788-4be1-af6d-1d76949e4c59">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+
+{
+	tasAssetId: vars.batchRecord.TASAssetID,
+	integrationStatus: if(vars.isAValidaAsset default true) 'R' else "F",
+	batchJobInstanceId: vars.batchJobInstanceId,
+	apiType: vars.batchRecord.APIType,
+	integrationDate: null,
+	lastUpdatedBy: 'tas-sf-asset-sync-job',
+	lastUpdatedDate: now() as LocalDateTime,
+	railforceRecordId: null,
+	railforceBatchId: null,
+	recordAttempts: (vars.batchRecord.NoOfAttempts + 1),
+	comments: "BatchRecordId: " ++ vars.batchRecord.id ++ " : " ++ ((Batch::getStepExceptions()) pluck ("Step : "++ $$ ++ " : " ++ ($.message default "") ++ ": cause exceptionMessage : " ++  ($.cause.exceptionMessage default "") ) joinBy ",")
+}
+]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-failure-record-transform-message" doc:id="d6f93a18-ad59-483f-9a7b-1b65be34b291" config-ref="JSON_Logger_Config" message="#['Transfromed message for failure recordId : ' ++ vars.batchRecord.id]" />
+	</sub-flow>
+
+	<sub-flow name="mechanical-success-record-transform-sub-flow" doc:id="98b4a23f-1e29-4d0a-a7c7-b6e0c55ae309" >
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-success-step-request" doc:id="516d322c-9e19-47a1-b423-7556003c5aff" config-ref="JSON_Logger_Config" message="#['Recieved request in success step for recordId : ' ++ vars.batchRecord.id]" />
+		<ee:transform doc:name="transform-record-failure-message" doc:id="170f185a-2dc7-4583-b85b-9ee60be8a47b">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+
+{
+	tasAssetId: vars.batchRecord.TASAssetID,
+	integrationStatus: 'S',
+	batchJobInstanceId: vars.batchJobInstanceId,
+	apiType: vars.batchRecord.APIType,
+	integrationDate: now() as LocalDateTime,
+	lastUpdatedBy: 'tas-sf-asset-sync-job',
+	lastUpdatedDate: now() as LocalDateTime,
+	railforceRecordId: null,
+	railforceBatchId: null,
+	recordAttempts: (vars.batchRecord.NoOfAttempts + 1),
+	comments: "BatchRecordId: " ++ vars.batchRecord.id ++ " : successful " 
+}
+]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-success-record-transform-message" doc:id="e49b6759-719e-4cbb-8a66-18d02d11d3fb" config-ref="JSON_Logger_Config" message="#['Transfromed message for success recordId : ' ++ vars.batchRecord.id]" />
+	</sub-flow>
+ 	<sub-flow name="asset-mechanical-salesforce-upsert-sub-flow" doc:id="5001d325-1a6a-4b94-91bb-9b09d563eece" >
+		<ee:transform doc:name="Transform Message" doc:id="ece642c9-a3dd-4461-b3e9-89b975e352b6" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="tasAssetIds" ><![CDATA[%dw 2.0
+output application/java
+---
+payload.TAS_Asset_ID__c]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-upsert-request" doc:id="21af1900-d471-4110-83e9-61d38c98d098" config-ref="JSON_Logger_Config" message="#['Upsert request for : ' ++ sizeOf(payload)]" />
+		<try doc:name="Try" doc:id="90df4231-db24-4e91-bd34-d4f2c7c0ae59">
+						<salesforce:upsert doc:name="upsert-mechanical-object" doc:id="fa1a4df1-f2f5-4bfc-8be2-e988807262a1" config-ref="Shared_Salesforce_Config_Special"  externalIdFieldName="TAS_Asset_ID__c" type="MechanicalData__c">
+						</salesforce:upsert>
+						<error-handler>
+							<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="2b8a6300-daba-4ea1-b173-4c941d381e35">
+								<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-salesforce-failure" doc:id="64c510b9-2645-474d-b312-3942cf2559c4" config-ref="JSON_Logger_Config" message="#['Upsert data failed with description :  '  ++  error.detailedDescription ++ &quot; : exception cause : &quot; ++ (error.cause.exceptionMessage default &quot;&quot;)]" tracePoint="EXCEPTION" />
+							</on-error-propagate>
+						</error-handler>
+					</try>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="Logger" doc:id="542003fd-2b3c-48ae-a434-308741500c8e" config-ref="JSON_Logger_Config" message="#['Saleforce Upsert result : '++ write(payload, 'application/json')]">
+		</json-logger:logger>
+		
+		<ee:transform doc:name="transform-salesforce-respone" doc:id="88a0ece4-fa26-49c7-8e00-ff6d040d1110">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var integrationDate = now() as LocalDateTime
+var batchRecordsInputData = vars.records.variables.batchRecord 
+var sfMap = (vars.tasAssetIds map ({
+	($): {
+		salesforceId: (payload.Id[$$]),
+		isSFRequestSuccessful: payload.success[$$],
+		message: 
+		if(payload.success[$$]) 
+		' Updated Salesforce Successfully' 
+		else 
+		(' Failed to update Salesforce ' ++ (((payload[$$].errors default []).message joinBy ",") default ""))
+	} 
+})) reduce ($$ ++ $) 
+---
+batchRecordsInputData map 
+using (sfMapRecord = sfMap[(''++$.TASAssetID)])
+{
+	tasAssetId: $.TASAssetID,
+	integrationStatus: if(sfMapRecord.isSFRequestSuccessful) 'S' else 'R',
+	batchJobInstanceId: vars.batchJobInstanceId,
+	apiType: $.APIType,
+	lastUpdatedBy: 'tas-sf-asset-sync-job',
+	integrationDate: integrationDate,
+	lastUpdatedDate: now() as LocalDateTime,
+	railforceRecordId: sfMapRecord.salesforceId,
+	railforceBatchId: sfMapRecord.salesforceId,
+	recordAttempts: ($.NoOfAttempts + 1),
+	//sfRecord: sfMap,
+	comments: 
+	("BatchRecordId: " ++ $.id ++ " : TASAssetID : " ++ $.TASAssetID ++ sfMapRecord.message) 
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+<!-- 
+		<json-logger:logger-scope doc:name="log-tas-staging-table-update-scope" doc:id="be5ce3d2-8a0a-42c8-a010-d59e2efc5182" category="tasStagingTable">
+			<flow-ref doc:name="update-records-to-staging-table-sub-flow-ref" doc:id="823b2bcf-1c6c-48f0-8fe6-a63ec5357267" name="update-records-to-staging-table-sub-flow"/>
+		</json-logger:logger-scope>	
+		
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-sf-response-tranform" doc:id="6d85a91b-84c4-47cd-99c8-9c088254bc5a" config-ref="JSON_Logger_Config" message="#['Saleforce Upsert result after transform : '++ write(payload, 'application/json')]" tracePoint="AFTER_TRANSFORM" />
+ -->
+	</sub-flow>
+
+ 	<sub-flow name="asset-mechanical-salesforce-upsert-sub-flow-for-parallel-foreach" doc:id="200f7d33-dfdf-4034-be1b-a6e9c0df91f1" >
+		<try doc:name="Try" doc:id="d3c5cf67-5b42-4ce8-8eda-edce5b5f0099">
+						<salesforce:upsert doc:name="upsert-mechanical-object" doc:id="e56edc3e-3b34-48f8-9623-e5499e66f63d" config-ref="Shared_Salesforce_Config_Special"  externalIdFieldName="TAS_Asset_ID__c" type="MechanicalData__c">
+				<salesforce:records ><![CDATA[#[payload.payload]]]></salesforce:records>
+						</salesforce:upsert>
+						<error-handler>
+							<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="777aebc7-44d3-4ab4-83bd-f7a822f83b32">
+								<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-salesforce-failure" doc:id="9847bf48-f0f4-4996-ad19-ba1d646353f6" config-ref="JSON_Logger_Config" message="#['Upsert data failed with description :  '  ++  error.detailedDescription ++ write(payload, 'applicaiton/json')]" tracePoint="EXCEPTION" />
+							</on-error-propagate>
+						</error-handler>
+					</try>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-sf-upsert-result" doc:id="d6b8e022-c79e-464b-8cd2-3f98ba082ab4" config-ref="JSON_Logger_Config" message="#['Saleforce Upsert result : ']">
+		</json-logger:logger>
+		
+		<ee:transform doc:name="transform-parallel-respone" doc:id="42058a94-8f34-4f9f-b5bf-1ce430adbf24">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+var integrationDate = now() as LocalDateTime
+---
+vars.inputList map 
+{
+	tasAssetId: $.TASAssetID,
+	integrationStatus: if(payload[$$].id != null) 'S' else 'R',
+	batchJobInstanceId: vars.batchJobInstanceId,
+	apiType: $.APIType,
+	lastUpdatedBy: 'tas-sf-asset-sync-job',
+	integrationDate: integrationDate,
+	lastUpdatedDate: integrationDate,
+	railforceRecordId: (payload[$$].id default null),
+	railforceBatchId: (payload[$$].id default null),
+	recordAttempts: ($.NoOfAttempts + 1),
+	//sfRecord: sfMap,
+	comments: 
+	("BatchRecordId: " ++ $.id ++ " : TASAssetID : " ++ $.TASAssetID ++ (payload[$$].message default " record upserted in salesforce successfully ")) 
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>	
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-sf-response-tranform" doc:id="10693af7-5ce3-489c-8ffd-c133d3453cae" config-ref="JSON_Logger_Config" message="#['Saleforce Upsert result after transform : '++ write(payload, 'application/json')]" tracePoint="AFTER_TRANSFORM" />
+	</sub-flow>
+
+
+	<sub-flow name="asset-mechanical-salesforce-upsert-individual-sub-flow" doc:id="66ce6dc7-d093-4863-9718-ae21ca014b58" >
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-upsert-request" doc:id="fcf20543-3ee9-425c-b80a-4f31e0618301" config-ref="JSON_Logger_Config" message="#['Upsert request for : ' ++ sizeOf(payload)]" />
+		<try doc:name="Try" doc:id="8c6bb03a-2ebd-450f-8c48-6f315e19678f">
+			<json-logger:logger-scope doc:name="log-scope-for-upsert-salesforce-call" doc:id="d8941450-11c4-47c0-aa9c-7f158705c0ff" >
+				<salesforce:upsert doc:name="upsert-mechanical-object" doc:id="5d2f0aa3-670e-45f9-9780-e1c26bf8952c" config-ref="Shared_Salesforce_Config_Special" externalIdFieldName="TAS_Asset_ID__c" type="MechanicalData__c">
+					<salesforce:records ><![CDATA[#[output applicaiton/json--- payload]]]></salesforce:records>
+				</salesforce:upsert>
+			</json-logger:logger-scope>
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="cce4f98a-d63d-42f6-a566-e8b9fbb4db5a">
+					<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-salesforce-failure" doc:id="d7f10a1f-0764-49b4-9d99-9490c8b40fd8" config-ref="JSON_Logger_Config" message="#['Upsert data failed with description :  '  ++  error.detailedDescription ]" tracePoint="EXCEPTION" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-salesforce-upsert-result" doc:id="a46bf352-2e7a-4f05-bb79-8b4a44ae2ba9" config-ref="JSON_Logger_Config" message="#['Got Saleforce Upsert result for Record Id : ']">
+		</json-logger:logger>
+		
+		<ee:transform doc:name="transform-salesforce-respone" doc:id="6fbbdc11-c08e-4440-8221-7477f4fbdb26">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+var integrationDate = now() as LocalDateTime
+--- 
+using(integrationDate = now() as LocalDateTime)
+using (isSFCallSuccess = (payload.success[0] default false) )
+{
+	tasAssetId: vars.batchRecord.TASAssetID,
+	integrationStatus: if(isSFCallSuccess) 'S' else 'R',
+	batchJobInstanceId: vars.batchJobInstanceId,
+	lastUpdatedBy: 'tas-sf-asset-sync-job',
+	integrationDate: integrationDate,
+	apiType: vars.batchRecord.APIType,
+	lastUpdatedDate: integrationDate,
+	railforceRecordId: payload.Id[0],
+	railforceBatchId: payload.Id[0],
+	//recordAttempts: (vars.batchRecord.NoOfAttempts + 1),
+	comments: 
+		("BatchRecordId: " ++ vars.batchRecord.id ++ " : TASAssetID : " ++ vars.batchRecord.TASAssetID ++ 
+			if(isSFCallSuccess) 
+			' Updated Salesforce Successfully' 
+			else 
+			(' Failed to update Salesforce ' ++ (((payload[0].errors default []).message joinBy ",") default ""))
+		) 
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+		
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-sf-response-tranform" doc:id="dbccd31b-370a-4435-8dbe-74c2e0d6bd86" config-ref="JSON_Logger_Config" message="#['Saleforce Upsert result after transform : ']" tracePoint="AFTER_TRANSFORM" />
+	</sub-flow>
+
+
+	<sub-flow name="transform-mechanical-saleforce-object-sub-flow" doc:id="a781f363-a394-4933-903c-8802e59610e7" >
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-railforce-request" doc:id="46d8b107-57a0-4b6b-9038-a360b40b954d" config-ref="JSON_Logger_Config" message="#['Received requrest in send to railforce step for recordId :  ' ++ vars.batchRecord.id]" />
+		<ee:transform doc:name="map-railforce-request" doc:id="bac24934-9dd0-43e5-bccf-c65580a6b0ef">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+[{
+	"Asset__c"										: vars.batchRecord.salesforceAssetId,
+	"Car_Mark__c"									: "" ++ payload.carMark,
+	"Car_Number__c"									: "" ++ payload.carNumber,
+	"Asset_Name__c"									: "" ++ payload.assetName,
+	//"account"										: "" ++ payload.account,
+	//"AccountId__c"									: "" ++ payload.accountId, 
+	"A_End_Coupler__c"								: payload.EndCouplerA,
+	"Air_Connector_Type__c"							: payload.airConnectorType,
+	"B_End_Coupler__c"								: payload.EndCouplerB,
+	"Bottom_Gate_Manufacturer__c"					: payload.bottomOutletGateManufacturer,
+	"Bottom_Gate_Model__c"							: payload.bottomOutletGateModel,
+	"Bottom_Gate_Type__c"							: payload.bottomOutletGateType,
+	//"BOV_Handle_Type__c"							: payload.BOVHandleType,
+	"Build_Date__c"									: payload.buildDate,
+	"Bottom_Outlet_Valve_Cap_Gasket__c"				: payload.bottomOutletValveCapGasket,
+	"BOV_Current__c"								: payload.BOVCurrentPerMechanicalData,
+	"Capacity__c"									: payload.capacity,
+	//"Coil_Material__c"							: payload.coilMaterial,
+	//"Coil_Type__c"								: payload.coilType,
+	"DOT_Construction_Class__c"						: payload.DOTConstructionClass,
+	"DOT_Stencil_Class__c"							: payload.DOTStencilClass,
+	"Extreme_Height__c"								: payload.extremeHeight,
+	"Extreme_Width__c"								: payload.extremeWidth,
+	"Eduction_Pipe__c"								: payload.educationPipeMaterial,
+	"Eduction_Valve__c"								: payload.eductionValve,
+	"File_Number__c"								: payload.fileNumber,
+	"Flange_Gasket__c"								: payload.flangeGasket,
+	"Gauging_Device__c"								: payload.gaugingDeviceManufacturer,
+	"Gross_Rail_Limit__c"							: payload.grossRailLimit,
+	"Hatch_Cover_Composition__c"					: payload.hatchCoverComposition,
+	"Hatch_Cover_Manufacturer__c"					: payload.hatchCoverManufacturer,
+	"Hatch_Cover_Model__c"							: payload.hatchCoverModel,
+	"Hatch_Opening_Number_Of_Hatches__c"			: payload.hatchOpeningQuantity,
+	"Hatch_Opening_Type__c"							: payload.hatchOpeningtype,
+	"Insulation_Material__c"						: payload.insulationMaterial,
+	//"Length_Over_Coupler_Pulling_Face_Extrem__c"	: payload.lengthOverCouplerPullingFace,
+	"Length_Over_Coupler_Pulling__c"	: payload.lengthOverCouplerPullingFace,
+	
+	"Light_Weight__c"								: payload.lightWeight,
+	"Lining_Date__c"								: payload.liningDate,
+	"Lining_Material__c"							: payload.interiorLiningMaterial,
+	"Lining_Type__c"								: payload.interiorLiningType,
+	"Length_Over_Striker__c"						: payload.lengthOverStriker,
+	"Lining_By__c"									: payload.liningBy,
+	"Load_Limit__c"									: payload.loadLimit,
+	"Manufacturer__c"								: payload.carBuilder,
+	"Manway_Gasket__c"								: payload.manwayGasket,
+	"Manway_Size__c"								: payload.manwaySize,
+	"Number_of_Compartments__c"						: payload.numberOfCompartments,
+	"Number_of_Bottom_Gates__c"						: payload.numberofBottomGates,
+	"Nitrogen_Pad__c"								: payload.nitrogenPad,
+	"Number_of_Coil_Lines__c"						: payload.heaterCoilNumberOfRuns,
+	"O_Ring__c"										: payload.oRing,
+	"Paint_By__c"									: payload.paintBy,
+	"Paint_Material__c"								: payload.exteriorPaintSystem,
+	"Paint_Color__c"								: payload.exteriorPaintColor,
+	"Paint_Date__c"									: payload.paintDate,
+	"Rupture_Disc__c"								: payload.ruptureDisc,
+	"Safety_Valve_Composition__c"					: payload.SafetyValveComposition,
+	"Safety_Valve_QTY__c"							: payload.safetyValveQTY,
+	"Safety_Vent__c"								: payload.safetyVentManufacturer,
+	"Sample_Valve__c"								: payload.sampleValve,
+	"TAS_Asset_ID__c"								: "" ++ payload.assetId,
+	"Thermowell__c"									: payload.thermowellModel,
+	"Truck_Capacity__c"								: payload.truckCapacity,
+	"Unit_of_Measure__c"							: payload.unitOfMeasure,
+	"VRV__c"										: payload.vacuumReliefValveManufacturer
+}]
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-transformed-sf-request" doc:id="410098c7-f454-42c5-a3db-0c82c441a7c8" config-ref="JSON_Logger_Config" message="#['Transformed requrest for railforce for recordId :  ' ++ vars.batchRecord.id]" tracePoint="AFTER_TRANSFORM" />
+	</sub-flow>
+	<sub-flow name="transform-asset-mechanical-record-sub-flow" doc:id="d3d3aac9-1eef-470f-8989-995be290d376" >
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-transform-request" doc:id="ffb16d78-66ce-488c-b8be-874e2584b2dc" config-ref="JSON_Logger_Config" message="#['Request received in transfrom step for recordId : ' ++ vars.batchRecord.id]" tracePoint="BEFORE_TRANSFORM" />
+		<json-logger:logger-scope doc:name="Logger scope" doc:id="384b0672-5814-4304-ad63-6207f9de4a1a" scopeTracePoint="DATA_TRANSFORM_SCOPE">
+			<ee:transform doc:name="Transform Message" doc:id="7244de89-419a-4fec-9f7c-3b362a34d829">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+
+var attributeMap = flatten(payload.components.attributes default []) map {
+	($.attributeId): $.value
+} reduce ($$ ++ $)
+
+var componentAttributeMap = ((payload.components default []) map {
+	($.componentId): {
+		dateApplied: $.dateApplied,
+		($.attributes map {
+			($.attributeId):$
+		})
+	}
+} reduce ($$ ++ $))
+
+//var formattingDate = (d) -> (d as LocalDateTime as String {format: "MM/dd/yyyy"}) default null
+//var formattingDate = (d) -> (d as DateTime as {format: "yyyy-MM-dd'T'HH:mm:ss.SSSz"}) default null
+//var formattingDate = (d) ->  (d as DateTime as String {format: "yyyy-MM-dd'T'HH:mm:ss.SSSz"}) default null
+
+
+var formattingDate = (d) ->  (d as DateTime) default null
+//((d ++ ".001-05:00") as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSZ"} ) default null
+
+
+var componentDate = (componentId) -> (formattingDate((componentAttributeMap[(componentId as String)]).dateApplied)) default null
+
+var componentValue = 
+(componentId) -> (componentAttributeMap[(componentId as String)]) default null
+
+var componentAttributeValue = 
+(componentId, attributeId) -> (componentAttributeMap[(componentId as String)][(attributeId as String)].value) default null
+
+var attibuteValueById = 
+(attributeId) -> (attributeMap[attributeId as String]) default null
+---
+{
+
+	
+//Car_Body_Flr_Cradle_Or_Trough_Orient__c : componentAttributeValue(,) ,
+//Ecp_Brake_Type_Ecp_Ready__c : componentAttributeValue(,) ,
+//Eduction_Val_No1_Connection_Val_No1__c : componentAttributeValue(,) ,
+A_End_Coupler__c : componentAttributeValue(15,27),
+Aar_4_2_Certificate_Of_Construction__c : componentAttributeValue(49,178),
+Aar_Car_Type_Aar_Car_Type__c : componentAttributeValue(45,87),
+Aar_Mechanical_Designation__c : componentAttributeValue(46,88),
+
+AccountID__c:(payload.accountId default null),
+//Air_Connector_Type__c : componentAttributeValue(28,515),
+Air_Val_Composition__c : componentAttributeValue(28,694),
+Air_Val_Connection_Size__c : componentAttributeValue(28,515),
+Air_Val_Connection__c : componentAttributeValue(28,450),
+Air_Val_Date_Applied__c : componentDate(28),
+Air_Val_Manuf__c : componentAttributeValue(28,357),
+Air_Val_Model_No__c : componentAttributeValue(28,358),
+Air_Val_SNo__c : componentAttributeValue(28,695),
+Air_Val_Type__c : componentAttributeValue(28,43),
+"Asset__r.RFO_TASId__c" : payload.assetId,
+BOV_Current_per_Mechanical_Data__c : componentAttributeValue(74,571),
+BOV_Handle_Type__c : componentAttributeValue(377,912),
+B_End_Coupler__c : componentAttributeValue(222,432),
+Bolster_A_Aar_Identification_No_A_End__c : componentAttributeValue(33,525),
+Bolster_A_Manufacturer_A_End__c : componentAttributeValue(33,392),
+Bolster_A_Pattern_No_A_End__c : componentAttributeValue(33,548),
+Bolster_A_Type_A_End__c : componentAttributeValue(33,70),
+Bottom_Gate_Date_Applied__c : componentDate(228),
+Bottom_Gate_Manufacturer__c : componentAttributeValue(228,472),
+Bottom_Gate_Model__c : componentAttributeValue(228,473),
+Bottom_Gate_Size__c : componentAttributeValue(228,474),
+Bottom_Gate_Type__c : componentAttributeValue(228,475),
+Bottom_Outlet_Val_Bottom_Outlet_Val__c : componentAttributeValue(74,453),
+Bottom_Outlet_Valve_Cap_Gasket__c : componentAttributeValue(315,516),
+Bottom_Outlet_Valve_Composition__c : componentAttributeValue(74,135),
+Bottom_Outlet_Valve_Date_Applied__c : componentDate(74),
+Bottom_Outlet_Valve_Manufacturer__c : componentAttributeValue(74,384),
+Bottom_Outlet_Valve_Model_Number__c : componentAttributeValue(74,379),
+Bottom_Outlet_Valve_Protection_Level__c : componentAttributeValue(74,572),
+Bottom_Outlet_Valve_Serial_Number__c : componentAttributeValue(74,696),
+//Bottom_Outlet_Valve_Size__c : componentAttributeValue(74,571)(ALPHA-749),
+Bottom_Outlet_Valve_Type__c : componentAttributeValue(74,200),
+Bov_Adaptor_Material__c : componentAttributeValue(330,785),
+Bov_Adaptor_Size__c : componentAttributeValue(330,784),
+Bov_Auxiliary_Valve_Composition__c : componentAttributeValue(314,782),
+Bov_Auxiliary_Valve_Manufacturer__c : componentAttributeValue(314,779),
+Bov_Auxiliary_Valve_Model__c : componentAttributeValue(314,780),
+Bov_Auxiliary_Valve_Size__c : componentAttributeValue(314,781),
+Bov_Auxiliary_Valve_Type__c : componentAttributeValue(314,738),
+Bov_Cap_Material__c : componentAttributeValue(331,787),
+Bov_Cap_Size__c : componentAttributeValue(331,786),
+Bov_Handle_Date_Applied__c : componentDate(377),
+Box_Car_Side_Door_Side_Door_Height__c : componentAttributeValue(274,890),
+Box_Car_Side_Door_Side_Door_Orient__c : componentAttributeValue(274,891),
+Box_Car_Side_Door_Side_Door_Width__c : componentAttributeValue(274,889),
+Box_Car_Side_Door_Side_Door__c : componentAttributeValue(274,279),
+Brake_Beam_Wear_Plate_Composition__c : componentAttributeValue(251,580),
+Brake_Beams_Manufacturer__c : componentAttributeValue(5,581),
+Brake_Beams_Type__c : componentAttributeValue(5,16),
+Brake_Cylinder_Type_A_End__c : componentAttributeValue(61,109),
+Brake_Cylnder_Tk_Brake_Cylnder_Size__c : componentAttributeValue(61,110),
+Brake_Shoe_Keys_Type__c : componentAttributeValue(252,582),
+Brake_Shoes_Type__c : componentAttributeValue(253,584),
+Brake_Val_Emergency_Portion_B_Model__c : componentAttributeValue(1,138),
+Brake_Val_Service_Portion_B_Manuf__c : componentAttributeValue(261,570),
+Braking_Ratio_Brak_Ratio_Handbrake__c : componentAttributeValue(262,599),
+Braking_Ratio_Braking_Ratio_Empty__c : componentAttributeValue(262,598),
+Braking_Ratio_Braking_Ratio_Loaded__c : componentAttributeValue(262,600),
+Build_Date__c : formattingDate(payload.buildDate),
+Built_By_Builders_Plant_Number__c : componentAttributeValue(19,86),
+//Built_By_Built_By__c : componentAttributeValue(19,35),
+Capacity_Design_Capacity__c : componentAttributeValue(229,622),
+Capacity__c : componentAttributeValue(229,467),
+Car_Mark__c : payload.carMark default null,
+Car_Number__c : (payload.carNumber as String) default null,
+Center_Plate_Diameter__c : componentAttributeValue(264,631),
+Center_Plate_Liners_Vert_Horiz__c : componentAttributeValue(265,676),
+Commodity_Current_Commodity__c : componentAttributeValue(241,540),
+Coupler_A_Date_Applied__c : componentDate(15),
+Coupler_A_Manufacturer_A_End__c : componentAttributeValue(15,343),
+//Coupler_A_Type_A_End__c : componentAttributeValue(15,27),
+Coupler_B_Date_Applied__c : componentDate(222),
+Coupler_B_Manufacturer_B_End__c : componentAttributeValue(222,427),
+Coupler_Carrier_Wear_Plate_Material__c : componentAttributeValue(269,632),
+Curv_Horizontal_Coupled_To_Base_Car__c : componentAttributeValue(270,623),
+Curv_Horizontal_Uncoupled__c : componentAttributeValue(270,624),
+Curv_Vertical_Coupled_To_Base_Car__c : componentAttributeValue(270,625),
+Curv_Vertical_Uncoupled__c : componentAttributeValue(270,626),
+Cushion_End_Of_Car_Cushioning__c : componentAttributeValue(271,639),
+DOT_Construction_Class__c : componentAttributeValue(18,34),
+DOT_Stencil_Class__c : componentAttributeValue(18,398),
+Doors_Door_Type__c : componentAttributeValue(206,489),
+Doors_Manuf__c : componentAttributeValue(206,387),
+Doors_Model_No__c : componentAttributeValue(206,487),
+Doors_No_Of_Doors__c : componentAttributeValue(206,486),
+Dot_Class_Packing_Group__c : componentAttributeValue(18,739),
+Draft_Gear_A_Manuf__c : componentAttributeValue(14,633),
+Draft_Gear_A_Type__c : componentAttributeValue(14,25),
+Draft_Gear_B_Manuf__c : componentAttributeValue(316,741),
+Draft_Gear_B_Type__c : componentAttributeValue(316,743),
+Ecp_Brake_Type_Ecp_Brake_Type__c : componentAttributeValue(364,882),
+Eduction_Pipe_Comp_Of_Pipe_No1__c : componentAttributeValue(27,37),
+Eduction_Pipe_Date_Applied__c : componentDate(27),
+Eduction_Pipe_Eduction_Pipe_Size__c : componentAttributeValue(27,557),
+Eduction_Pipe_Mount_Config_Of_Pipe__c : componentAttributeValue(27,533),
+Eduction_Pipe__c : componentAttributeValue(27,556),
+Eduction_Val_No1_Connection_No1__c : componentAttributeValue(272,745),
+Eduction_Val_No1_Date_Applied__c : componentDate(272),
+Eduction_Val_No1_Manuf_Val_No1__c : componentAttributeValue(272,547),
+Eduction_Val_No1_Model_Val_No1__c : componentAttributeValue(272,65),
+Eduction_Val_No1_SNo_Val_No1__c : componentAttributeValue(272,698),
+Eduction_Val_No1_Size_Val_No1__c : componentAttributeValue(272,569),
+Eduction_Val_No1_Type_No1__c : componentAttributeValue(272,746),
+Eduction_Valve__c : componentAttributeValue(272,535),
+Empty_Load_Sensor_B_Manuf__c : componentAttributeValue(60,476),
+Empty_Load_Sensor_B_Model_No__c : componentAttributeValue(60,477),
+Empty_Load_Sensor_B_Type__c : componentAttributeValue(60,108),
+//Exterior_Paint_Date_Applied__c : componentDate(29),
+Exterior_Paint_Shop_Location__c : componentAttributeValue(29,365),
+Exterior_Paint_Surf_Prep_Exterior__c : componentAttributeValue(29,658),
+Exterior_Paint_Type__c : componentAttributeValue(29,58),
+Extreme_Height__c : componentAttributeValue(52,100),
+Extreme_Width__c : componentAttributeValue(53,101),
+Extrm_Width_Height_At_Extrm_Width__c : componentAttributeValue(53,252),
+File_Number__c : payload.fileNumber default null,
+Fitting_Type__c : componentAttributeValue(91,189),
+Flange_Gasket__c : componentAttributeValue(317,573),
+Flat_Gaskets_Date_Applied__c : componentDate(317),
+//Flat_Gaskets_Flat_Gasket_Material__c : componentAttributeValue(317,573),
+Floor_Slopes_Center_Partition__c : componentAttributeValue(275,646),
+Floor_Slopes_Floors_Lower__c : componentAttributeValue(275,644),
+Floor_Slopes_Floors_Upper__c : componentAttributeValue(275,645),
+Floor_Slopes_Outside_Hopper__c : componentAttributeValue(275,647),
+Floor_Type__c : componentAttributeValue(94,192),
+Friction_Shoes_Model_Style__c : componentAttributeValue(238,526),
+Gauge_Device_No1_Configuration__c : componentAttributeValue(277,700),
+Gauge_Device_No1_Date_Applied__c : componentDate(277),
+Gauge_Device_No1_SNo__c : componentAttributeValue(277,517),
+Gauging_Device__c : componentAttributeValue(277,451),
+//Gross_Rail_Limit__c : attibuteValueById(507),
+//Gross_Rail_Limit__c : componentAttributeValue(29,58),
+Hand_Brake_Date_Applied__c : componentDate(3),
+Hand_Brake_Group__c : componentAttributeValue(3,401),
+Hand_Brake_Hand_Brake_Chain_Painted__c : componentAttributeValue(3,478),
+Hand_Brake_Manuf__c : componentAttributeValue(3,602),
+Hand_Brake_Type__c : componentAttributeValue(3,154),
+Hatch_Cover_Composition__c : componentAttributeValue(71,123),
+Hatch_Cover_Manufacturer__c : componentAttributeValue(71,860),
+Hatch_Cover_Model__c : componentAttributeValue(71,861),
+Hatch_Opening_Number_Of_Hatches__c : componentAttributeValue(70,514),
+Hatch_Opening_Size__c : componentAttributeValue(70,124),
+Hatch_Opening_Type__c : componentAttributeValue(70,542),
+Head_Head_Brace__c : componentAttributeValue(13,541),
+Head_Material__c : componentAttributeValue(13,22),
+Head_Thickness__c : componentAttributeValue(13,23),
+Headshield_Date_Applied__c : componentDate(369),
+Headshield_Headshield__c : componentAttributeValue(369,544),
+Heater_Coils_Approx_Heating_Area__c : componentAttributeValue(17,611),
+Heater_Coils_Coil_Material__c : componentAttributeValue(17,884),
+Heater_Coils_Configuration__c : componentAttributeValue(17,31),
+Heater_Coils_Id_And_Material__c : componentAttributeValue(17,33),
+Heater_Coils_Inlets_Or_Outlets__c : componentAttributeValue(17,612),
+Heater_Coils_Location__c : componentAttributeValue(17,198),
+Heater_Coils_Manuf__c : componentAttributeValue(17,352),
+Heater_Coils_Model_No__c : componentAttributeValue(17,353),
+Inside_Height_Inside_Height__c : componentAttributeValue(88,186),
+Inside_Length_Inside_Length__c : componentAttributeValue(230,471),
+Inside_Width_Inside_Width__c : componentAttributeValue(87,185),
+Insulation_Car_Location__c : componentAttributeValue(16,351),
+Insulation_Composition_And_Density__c : componentAttributeValue(16,29),
+Insulation_Material__c : componentAttributeValue(16,30),
+Interior_Lining_Date_Applied__c : componentDate(30),
+Interior_Lining_Manuf__c : componentAttributeValue(30,370),
+Jacketing_Jacket_Head_And_Shell__c : componentAttributeValue(279,613),
+Len_Ovr_Tk_Centers__c : componentAttributeValue(51,99),
+Length_Over_Coupler_Pulling__c : componentAttributeValue(48,97),
+Length_Over_Striker__c : componentAttributeValue(50,98),
+Light_Weight__c : componentAttributeValue(374,80),
+Lining_By__c : componentAttributeValue(30,372),
+Lining_Date__c : componentDate(30),
+Lining_Material__c : componentAttributeValue(30,61),
+Lining_Type__c : componentAttributeValue(30,60),
+Load_Limit__c : componentAttributeValue(374,179),
+Manufacturer__c : componentAttributeValue(19,35),
+Manway_Composition__c : componentAttributeValue(26,45),
+Manway_Cover_Aar_Manway_Style__c : componentAttributeValue(73,518),
+Manway_Cover_Composition__c : componentAttributeValue(73,132),
+Manway_Cover_Special_Features__c : componentAttributeValue(73,47),
+Manway_Gasket__c : componentAttributeValue(320,400),
+Manway_Size__c : componentAttributeValue(26,46),
+Mill_Gon_Inside_Height_Of_Sides__c : componentAttributeValue(280,617),
+Name:payload.assetId,
+Nitrogen_Pad__c : componentAttributeValue(313,648),
+No8_Vent_Valve_Date_Applied__c : componentDate(59),
+No8_Vent_Valve_Type__c : componentAttributeValue(59,107),
+Nozzle_Reinforce_Pad_Date_Applied__c : componentDate(378),
+Nozzle_Reinforcement_Pad__c : componentAttributeValue(378,915),
+Number_of_Bottom_Gates__c : componentAttributeValue(228,470),
+Number_of_Coil_Lines__c : componentAttributeValue(17,32),
+Number_of_Compartments__c : componentAttributeValue(57,105),
+O_Ring__c : componentAttributeValue(218,419),
+//O_Rings_O_Rings_Material__c : componentAttributeValue(218,419),
+Outage_Scale_Allow_Weight_Per_Gallon__c : componentAttributeValue(281,620),
+Outage_Scale_Effect_Capacity_Gallons__c : componentAttributeValue(281,621),
+Outage_Scale_Outage_Scale__c : componentAttributeValue(281,703),
+Outlet_Saddle_Outlet_Saddle__c : componentAttributeValue(282,704),
+Paint_By__c : componentAttributeValue(29,362),
+Paint_Color__c : componentAttributeValue(29,57),
+Paint_Date__c : formattingDate(componentDate(29)),
+Paint_Material__c : componentAttributeValue(29,363),
+Pd_Air_Inlet_Connection_Size__c : componentAttributeValue(357,853),
+Pd_Air_Inlet_Pipe_Material__c : componentAttributeValue(356,855),
+Pd_Air_Inlet_Pipe_Size__c : componentAttributeValue(356,854),
+Pd_Product_Outlet_Connection_Size__c : componentAttributeValue(359,856),
+Pd_Product_Outlet_Pipe_Material__c : componentAttributeValue(358,858),
+Pd_Product_Outlet_Pipe_Size__c : componentAttributeValue(358,857),
+Pedestal_Roof_Liners__c : componentAttributeValue(283,677),
+Plate_Clearance_Plate_Clearance__c : componentAttributeValue(65,113),
+Protective_Housing__c : componentAttributeValue(163,300),
+Reflector_Color__c : componentAttributeValue(236,510),
+Reflector_Performer__c : componentAttributeValue(236,904),
+Refrig_Unit_Fuel_Tank_Capacity__c : componentAttributeValue(286,481),
+Refrig_Unit_Reefer_Unit_Manuf__c : componentAttributeValue(286,483),
+Refrig_Unit_Reefer_Unit_Model_No__c : componentAttributeValue(286,484),
+Refrig_Unit_Reefer_Unit_SNo__c : componentAttributeValue(286,485),
+Refrig_Unit_Refrigeration_Fuel_Type__c : componentAttributeValue(286,887),
+Remote_Monitor_Equip_Gps_Model_No__c : componentAttributeValue(287,482),
+Remote_Monitor_Equip_Gps_SNo__c : componentAttributeValue(287,874),
+Roof_Type__c : componentAttributeValue(177,319),
+Rupture_Disc_Mfr__c : componentAttributeValue(296,538),
+Rupture_Disc__c : componentAttributeValue(296,539),
+Safety_Relief_Device_Type__c : componentAttributeValue(293,888),
+Safety_Val_No1_Date_Applied__c : componentDate(294),
+Safety_Val_No1_Flow_Capacity__c : componentAttributeValue(294,913),
+Safety_Val_No1_Manuf__c : componentAttributeValue(294,51),
+Safety_Val_No1_Model_No__c : componentAttributeValue(294,52),
+Safety_Val_No1_Pressure_Setting__c : componentAttributeValue(294,503),
+Safety_Val_No1_SNo_Val_No1__c : componentAttributeValue(294,705),
+Safety_Val_No2_Composition__c : componentAttributeValue(295,706),
+Safety_Val_No2_Date_Applied__c : componentDate(295),
+Safety_Val_No2_Flow_Capacity__c : componentAttributeValue(295,914),
+Safety_Val_No2_Manuf__c : componentAttributeValue(295,707),
+Safety_Val_No2_Model_No__c : componentAttributeValue(295,708),
+Safety_Val_No2_Pressure_Setting__c : componentAttributeValue(295,709),
+Safety_Val_No2_SNo_Val_No2__c : componentAttributeValue(295,710),
+Safety_Valve_Composition__c : componentAttributeValue(294,50),
+Safety_Valve_QTY__c : componentAttributeValue(293,323),
+//Safety_Vent_Manuf__c : componentAttributeValue(328,767),
+Safety_Vent_Model__c : componentAttributeValue(328,768),
+Safety_Vent__c : componentAttributeValue(328,767),
+Sample_Line_Configuration__c : componentAttributeValue(23,53),
+Sample_Line_Manuf__c : componentAttributeValue(23,799),
+Sample_Line_Sample_Line_Check_Val__c : componentAttributeValue(23,418),
+Sample_Line_Size__c : componentAttributeValue(23,801),
+Sample_Valve__c : componentAttributeValue(23,800),
+Side_Bearing_Manuf__c : componentAttributeValue(239,528),
+Side_Bearing_Type__c : componentAttributeValue(239,527),
+Slack_Adjuster_B_Group_B_End__c : componentAttributeValue(298,938),
+Slack_Adjuster_B_Manufacturer_B_End__c : componentAttributeValue(298,94),
+Slack_Adjuster_B_Type_B_End__c : componentAttributeValue(298,605),
+Sparger_System_Sparger_System__c : componentAttributeValue(234,504),
+Springs_Manuf__c : componentAttributeValue(64,686),
+Springs_Type__c : componentAttributeValue(64,112),
+Star_Code_Star_Code__c : componentAttributeValue(181,325),
+Sump_Material__c : componentAttributeValue(8,520),
+Sump_Type__c : componentAttributeValue(8,28),
+Tank_Bottom_Slope_Bottom_Slope__c : componentAttributeValue(54,102),
+Tank_Shell_Material__c : componentAttributeValue(66,114),
+Tank_Shell_Thickness__c : componentAttributeValue(66,115),
+Tank_Size_Tank_Id__c : componentAttributeValue(68,627),
+Tank_Size_Tank_Tangent_To_Tangent__c : componentAttributeValue(68,628),
+TAS_Asset_ID__c : ((payload.assetId default "") as String),	
+Test_Data_Design_Or_Test_Pressure__c : componentAttributeValue(299,629),
+Test_Data_Tank_Test_Pressure__c : componentAttributeValue(299,643),
+Thermal_Protection_Materials__c : componentAttributeValue(375,910),
+Thermowell_Manuf__c : componentAttributeValue(22,54),
+//Thermowell_Model__c : componentAttributeValue(22,711) (ALPHA-749),
+Thermowell__c : componentAttributeValue(22,711), 
+TkSideFr_A_Lt_Aar_CodeNo_A_End_Lt__c : componentAttributeValue(34,529) ,
+TkSideFr_A_Lt_Aar_IdNo_A_End_Lt__c : componentAttributeValue(34,530) ,
+TkSideFr_A_Lt_Type_A_End_Lt__c : componentAttributeValue(34,72) ,
+TkSideFr_A_Right_Aar_Code_No_A_End_Rt__c : componentAttributeValue(352,835) ,
+TkSideFr_A_Right_Aar_IdNo_A_End_Rt__c : componentAttributeValue(352,836) ,
+TkSideFr_A_Right_Type_A_End_Rt__c : componentAttributeValue(352,832) ,
+TkSideFr_B_Lt_Aar_Code_No_B_End_Lt__c : componentAttributeValue(226,688) ,
+TkSideFr_B_Lt_Aar_IdNo_B_End_Lt__c : componentAttributeValue(226,689) ,
+TkSideFr_B_Lt_Type_B_End_Lt__c : componentAttributeValue(226,443) ,
+TkSideFr_B_Rt_Aar_Code_No_B_End_Rt__c : componentAttributeValue(353,842) ,
+TkSideFr_B_Rt_Aar_IdNo_B_End_Rt__c : componentAttributeValue(353,843) ,
+TkSideFr_B_Rt_Type_B_End_Rt__c : componentAttributeValue(353,840) ,
+Tk_Adapters_Type__c : componentAttributeValue(300,687) ,
+Tk_Stabilizers_Type__c : componentAttributeValue(301,692) ,
+Top_Fittings_Protection_Type__c : componentAttributeValue(380,939) ,
+Truck_Capacity__c : componentAttributeValue(35,73) ,
+Type_Of_Brakes_Type_Of_Brakes__c : componentAttributeValue(302,606) ,
+Uncoupling_Rod_Manuf__c : componentAttributeValue(303,634) ,
+Uncoupling_Rod_Type__c : componentAttributeValue(303,635) ,
+Underframe_Sill_Design__c : componentAttributeValue(12,21) ,
+Unit_of_Measure__c : componentAttributeValue(229,468) ,
+VRV__c : componentAttributeValue(21,521) ,
+Vac_Relif_Device_Composition__c : componentAttributeValue(21,55) ,
+Vac_Relif_Device_Date_Applied__c : componentDate(21) ,
+Vac_Relif_Device_Model_No__c : componentAttributeValue(21,522) ,
+Vac_Relif_Device_SNo__c : componentAttributeValue(21,907) ,
+Vac_Relif_Device_TypeNSize_Of_Con__c : componentAttributeValue(21,523) ,
+Vacuum_Rating__c : componentAttributeValue(304,630) ,
+Vibrator_Fitting_Manuf__c : componentAttributeValue(305,651) ,
+Vibrator_Fitting_Type__c : componentAttributeValue(305,652) ,
+Walkways_And_Platforms_End__c : componentAttributeValue(306,619) ,
+Walkways_And_Platforms_Top__c : componentAttributeValue(306,403) ,
+Weight_Gross_Rail_Load_Built_To__c : componentAttributeValue(374,85) ,
+Weight_Gross_Rail_Load_Stencilled__c : componentAttributeValue(374,507) ,
+//Weight_Tare_Weight__c : componentAttributeValue(374,80) (ALPHA - 749) ,
+Whl_Base_Whl_Base__c : componentAttributeValue(311,693) ,
+Whl_Bearing_Type_Whl_Bearing_Type__c : componentAttributeValue(362,879) ,
+Whl_Set_No1_Journal_Size_Whl_Set_1__c : componentAttributeValue(307,256) ,
+Whl_Set_No1_Manuf_Axle_1__c : componentAttributeValue(307,187) ,
+Whl_Set_No1_Manuf_Roller_Bearing_L1__c : componentAttributeValue(307,172) ,
+Whl_Set_No1_Manuf_Roller_Bearing_R1__c : componentAttributeValue(307,916) ,
+Whl_Set_No1_Manuf_Whl_L1__c : componentAttributeValue(307,76) ,
+Whl_Set_No1_Manuf_Whl_R1__c : componentAttributeValue(307,771) ,
+Whl_Set_No1_SNo_Axle_1__c : componentAttributeValue(307,928) ,
+Whl_Set_No1_SNo_Roller_Bearing_L1__c : componentAttributeValue(307,924) ,
+Whl_Set_No1_SNo_Roller_Bearing_R1__c : componentAttributeValue(307,920) ,
+Whl_Set_No1_SNo_Whl_L1__c : componentAttributeValue(307,723) ,
+Whl_Set_No1_SNo_Whl_R1__c : componentAttributeValue(307,727) ,
+Whl_Set_No1_Size_Whl_Set_No1__c : componentAttributeValue(307,74) ,
+Whl_Set_No2_Journal_Size_Whl_Set_2__c : componentAttributeValue(308,932) ,
+Whl_Set_No2_Manuf_Axle_2__c : componentAttributeValue(308,663) ,
+Whl_Set_No2_Manuf_Roller_Bearing_L2__c : componentAttributeValue(308,678) ,
+Whl_Set_No2_Manuf_Roller_Bearing_R2__c : componentAttributeValue(308,917) ,
+Whl_Set_No2_Manuf_Whl_L2__c : componentAttributeValue(308,720) ,
+Whl_Set_No2_Manuf_Whl_R2__c : componentAttributeValue(308,773) ,
+Whl_Set_No2_SNo_Axle_2__c : componentAttributeValue(308,929) ,
+Whl_Set_No2_SNo_Roller_Bearing_L2__c : componentAttributeValue(308,925) ,
+Whl_Set_No2_SNo_Roller_Bearing_R2__c : componentAttributeValue(308,921) ,
+Whl_Set_No2_SNo_Whl_L2__c : componentAttributeValue(308,724) ,
+Whl_Set_No2_SNo_Whl_R2__c : componentAttributeValue(308,728) ,
+Whl_Set_No2_Size_Whl_Set_No2__c : componentAttributeValue(308,731) ,
+Whl_Set_No3_Journal_Size_Whl_Set_3__c : componentAttributeValue(309,933) ,
+Whl_Set_No3_Manuf_Axle_3__c : componentAttributeValue(309,664) ,
+Whl_Set_No3_Manuf_Roller_Bearing_L3__c : componentAttributeValue(309,679) ,
+Whl_Set_No3_Manuf_Roller_Bearing_R3__c : componentAttributeValue(309,918) ,
+Whl_Set_No3_Manuf_Whl_L3__c : componentAttributeValue(309,721) ,
+Whl_Set_No3_Manuf_Whl_R3__c : componentAttributeValue(309,775) ,
+Whl_Set_No3_SNo_Axle_3__c : componentAttributeValue(309,930) ,
+Whl_Set_No3_SNo_Roller_Bearing_L3__c : componentAttributeValue(309,926) ,
+Whl_Set_No3_SNo_Roller_Bearing_R3__c : componentAttributeValue(309,922) ,
+Whl_Set_No3_SNo_Whl_L3__c : componentAttributeValue(309,725) ,
+Whl_Set_No3_SNo_Whl_R3__c : componentAttributeValue(309,729) ,
+Whl_Set_No3_Size_Whl_Set_No3__c : componentAttributeValue(309,732) ,
+Whl_Set_No4_Journal_Size_Whl_Set_4__c : componentAttributeValue(310,934) ,
+Whl_Set_No4_Manuf_Axle_4__c : componentAttributeValue(310,665) ,
+Whl_Set_No4_Manuf_Roller_Bearing_L4__c : componentAttributeValue(310,680) ,
+Whl_Set_No4_Manuf_Roller_Bearing_R4__c : componentAttributeValue(310,919) ,
+Whl_Set_No4_Manuf_Whl_L4__c : componentAttributeValue(310,722) ,
+Whl_Set_No4_Manuf_Whl_R4__c : componentAttributeValue(310,777) ,
+Whl_Set_No4_SNo_Axle_4__c : componentAttributeValue(310,931) ,
+Whl_Set_No4_SNo_Roller_Bearing_L4__c : componentAttributeValue(310,927) ,
+Whl_Set_No4_SNo_Roller_Bearing_R4__c : componentAttributeValue(310,923) ,
+Whl_Set_No4_SNo_Whl_L4__c : componentAttributeValue(310,726) ,
+Whl_Set_No4_SNo_Whl_R4__c : componentAttributeValue(310,730) ,
+Whl_Set_No4_Size_Whl_Set_No4__c : componentAttributeValue(310,733) ,
+Yoke_A_Manuf_A_End__c : componentAttributeValue(11,636) ,
+Yoke_A_Model_A_End__c : componentAttributeValue(11,20) ,
+Yoke_B_Manuf_B_End__c : componentAttributeValue(223,637) ,
+Yoke_B_Model_B_End__c : componentAttributeValue(223,433) 
+
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+<!--	
+	<ee:transform doc:name="Transform Message" doc:id="e97c81a0-c1fc-498d-b5eb-b76a357f9f9d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>	
+-->		
+		</json-logger:logger-scope>		
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-transform-message" doc:id="72e30096-6692-418f-b354-96b31ee9ea81" config-ref="JSON_Logger_Config" tracePoint="AFTER_TRANSFORM" message="#['Transformed Mechanical data for recordId : ' ++ vars.batchRecord.id]" />
+	</sub-flow>
+	<sub-flow name="get-mechanical-data-sub-flow" doc:id="4b0f7331-8ffe-4a3b-ac26-3f4579962c9b" >
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-mechanical-record" doc:id="2d43f8d3-9ecf-4e87-986c-263c7adb761d" config-ref="JSON_Logger_Config" message="#['Requesting Asset Mechanical record details for recordId : ' ++ vars.batchRecord.id]" />
+		<try doc:name="Try" doc:id="1002ab85-599a-4e27-8fd3-5b2855006279" >
+			<http:request method="GET" doc:name="get-mechanical-by-assetId" doc:id="d7a04842-ebd8-4548-9775-60f18bb5d24b" config-ref="Asset_HTTPS_Request_configuration" path="/Assets/{assetId}/Mechanical" sendCorrelationId="ALWAYS" correlationId="#[vars.batchRecord.id]">
+						<http:uri-params><![CDATA[#[output application/java
+---
+{
+	"assetId" : payload.TASAssetID
+}]]]></http:uri-params>
+					</http:request>
+			<error-handler >
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="050af497-4963-4d1a-b136-bd98a8ccff35" type="HTTP:NOT_FOUND">
+					<json-logger:logger doc:name="log-asset-not-found-message" doc:id="8e03d111-b2f8-42f4-9f6b-b149050640c6" config-ref="JSON_Logger_Config" message='#["Asset ID : " ++ (payload.TASAssetID default "") ++ " could not found in .NET TAS Asset Mechanical API"]' priority="WARN"/>
+					<ee:transform doc:name="Set-isAValidAsset" doc:id="f8e6c8a3-18fa-460a-969b-6d8fdd9fc084" >
+						<ee:message >
+						</ee:message>
+						<ee:variables >
+							<ee:set-variable variableName="isAValidaAsset" ><![CDATA[%dw 2.0
+output application/java
+---
+false]]></ee:set-variable>
+						</ee:variables>
+					</ee:transform>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-asset-mechanical-api-response" doc:id="1efb375f-115f-401e-9d18-de0f0ddad23c" config-ref="JSON_Logger_Config" message="#['Response received from Asset Mechanical API for recordId : ' ++ vars.batchRecord.id ++ ' : ' ]" />
+	</sub-flow>
+	<sub-flow name="asset-mecahnical-staging-to-sf-sync-sub-flow" doc:id="0f451253-4805-4f5c-913a-40457bc47024" >
+		<ee:transform doc:name="set-scheduleRunDateTime" doc:id="2a232a5e-65a6-4826-9775-d5c7fb7363eb">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="scheduleRunDateTime"><![CDATA[%dw 2.0
+output application/java
+---
+now() as LocalDateTime {format: "yyyy-MM-dd HH:mm:ss.SSS"}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-asset-mechanical-sync-start" doc:id="b733a890-b2f2-4a5e-8a89-b40303b143fc" config-ref="JSON_Logger_Config" message="Asset Mechanical Sync process triggered"/>
+		<db:select doc:name="select-count-mechanical-records" doc:id="9850d6a5-bcca-4ea4-aa84-70bc5ffc0ef1" config-ref="Shared_TasSupport_Database_Config" target="recordsCount" targetValue="#[payload.recordsCount[0]]">
+			<db:sql>SELECT count(distinct TASAssetID) as recordsCount
+FROM TAS_SF_Asset_Staging 
+WHERE APIType = 'Mechanical' 
+AND IntegrationStatus not in ('F', 'S')
+AND CreatedDate &lt;= :scheduleRunDateTime</db:sql>
+			<db:input-parameters><![CDATA[#[{
+	scheduleRunDateTime: vars.scheduleRunDateTime
+}]]]></db:input-parameters>
+		</db:select>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-records-count" doc:id="e21ef5b0-b518-44ce-95dd-600f87322316" config-ref="JSON_Logger_Config" message="#['For the scheduled ' ++ vars.scheduleRunDateTime ++ ' run number of records count : ' ++ vars.recordsCount]">
+		</json-logger:logger>
+		<choice doc:name="records present?" doc:id="a28d08fd-cf26-4eaf-81bb-ac5b5f105252">
+			<when expression="#[vars.recordsCount &gt; 0]">
+				<flow-ref doc:name="asset-mechanical-records-sync-divide-batch-sub-flow-ref" doc:id="8dc35e76-6294-4727-84cd-0c49a538070b" name="asset-mechanical-records-sync-divide-batch-sub-flow" />
+			</when>
+			<otherwise>
+				<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-no-records-message" doc:id="4dc11ed9-8a03-4bf0-af78-3969a22a4cad" config-ref="JSON_Logger_Config" message="'At ' ++ vars.scheduleRunDateTime ++ ', no records are present for further processing'"/>
+			</otherwise>
+		</choice>
+		<ee:transform doc:name="set-response" doc:id="22b06696-0aea-450e-8e49-74fea554c2bd">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	scheduleRunDateTime: vars.scheduleRunDateTime,
+	message: 'Processed ' ++ vars.recordsCount ++ ' records',
+	batchesStatus : 
+	(
+		if(vars.recordsCount > 0)
+			payload	
+		else 
+			'No records are there for processing'
+	)
+		
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-asset-mechanical-sync-end" doc:id="6c539362-ff80-4aa0-b67a-96157b53d487" config-ref="JSON_Logger_Config" message="Asset Mechanical Sync process completed"/>
+	</sub-flow>
+	<flow name="asset-mechanical-records-sync-divide-batch-sub-flow" doc:id="0aae3d97-f47f-40c0-b494-64b1b65f1cf8" >
+		<ee:transform doc:name="set-pagination-values" doc:id="1ec26604-f275-4f1a-b110-a50d7f8900fd" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="paginationValues" ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	begin: 0,
+	end: 3000
+}]]></ee:set-variable>
+				<ee:set-variable variableName="batchesResult" ><![CDATA[%dw 2.0
+output application/java
+---
+[]]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="90401afe-3da5-43cb-9877-48c23b699826" collection="#[0 to (((vars.recordsCount default 0)/3000))]" batchSize="1">
+			<json-logger:logger correlationId="#[correlationId]" doc:name="log-bulk-db-update-request-start" doc:id="c4f09cd6-50b5-4c8a-9827-9df51a2923ff" config-ref="JSON_Logger_Config" message="#['Iteration batch number : '  ++  payload]"/>
+		
+			<try doc:name="Try" doc:id="f35ecb7d-75b3-423e-8a18-9fb12279c3b5">
+			<db:select doc:name="select-mechanical-records-from-staging-table" doc:id="668144aa-4a54-453f-9222-a35e35c405cf" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>SELECT * 
+FROM TAS_SF_Asset_Staging 
+WHERE APIType = 'Mechanical' 
+AND IntegrationStatus NOT IN ('F', 'S') order by ID 
+OFFSET :begin ROWS FETCH NEXT :end ROWS ONLY
+</db:sql>
+				<db:input-parameters><![CDATA[#[vars.paginationValues]]]></db:input-parameters>
+		</db:select>
+				<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="e0347444-a557-4750-bec9-176f8ee63672">
+					<json-logger:logger doc:name="log-failure-select-mecahnical-data" doc:id="c5acf83a-3431-47dc-af20-6bdef3248712" config-ref="JSON_Logger_Config" message="#['Error occurred while selecting the asset mechanical data : ' ++ error.detailedDescription]" tracePoint="EXCEPTION" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+			<flow-ref doc:name="mechanical-batch-orchestrate-flow-ref" doc:id="1e65ea39-8ab5-4883-b803-c1dfe8a8aafa" name="mechanical-batch-orchestrate-flow" />
+			<ee:transform doc:name="Transform Message" doc:id="a2ea0dfc-1436-40f3-8f58-716b1b6be4e0" >
+				<ee:message >
+				</ee:message>
+				<ee:variables >
+					<ee:set-variable variableName="paginationValues" ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	begin: vars.paginationValues.end,
+	end: 3000
+}]]></ee:set-variable>
+					<ee:set-variable variableName="batchesResult" ><![CDATA[%dw 2.0
+output application/java
+---
+vars.batchesResult + payload]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+		</foreach>
+		<ee:transform doc:name="Transform Message" doc:id="f2864b63-c0bc-4adc-a7ec-7d65f5ea41a4" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+vars.batchesResult]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		
+		<!-- <batch:job jobName="tas-sf-asset-mechanical-job" doc:id="af61ff0d-fa5c-41fb-8786-05bcc139add4" maxFailedRecords="-1" maxConcurrency="25" blockSize="1" > -->
+	</flow>
+	<sub-flow name="asset-mechanical-for-each-record-processing-flow" doc:id="80724176-f259-4829-b5c7-2165f8aa5d1d" >
+		<try doc:name="Try" doc:id="36e99bdc-0af6-4a50-ad5e-8eb0bf5139a9" >
+			<db:select doc:name="select-mechanical-records-from-staging-table" doc:id="3da70a5c-fff2-47ba-942b-f6a03175a4b1" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>SELECT * 
+FROM TAS_SF_Asset_Staging 
+WHERE APIType = 'Mechanical' 
+AND IntegrationStatus NOT IN ('F', 'S') order by ID</db:sql>
+		</db:select>
+			<error-handler >
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="9634e970-08a8-44b5-8b55-d99475c49fcc" >
+					<json-logger:logger doc:name="log-failure-select-mecahnical-data" doc:id="668c425b-7bdf-42de-88a1-f750da9a4328" config-ref="JSON_Logger_Config" message="#['Error occurred while selecting the asset mechanical data : ' ++ error.detailedDescription]" tracePoint="EXCEPTION"/>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<foreach doc:name="For Each 100 each of AssetIds" doc:id="65ff1a95-07a0-42f3-b5da-d990e364a86c" batchSize="50">
+			<try doc:name="Try" doc:id="4c18c060-274c-4e92-98e6-39f72fe668c1" >
+			<ee:transform doc:name="Transform Message" doc:id="7071eb6d-770d-4627-8f6f-ec978a78ef7a" >
+				<ee:message >
+				</ee:message>
+				<ee:variables >
+					<ee:set-variable variableName="inputList" ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+				<parallel-foreach doc:name="parallel-for-each" doc:id="35ceaedb-062d-47cf-8739-80d61c5c74a4" >
+					<json-logger:logger-scope doc:name="log-scope-for-get-mechanical-step" doc:id="b82d231f-3f08-43c1-9a5b-67eba85294cc">
+						<flow-ref doc:name="set-unique-record-id-sub-flow-ref" doc:id="41d6aed9-eabe-4fa7-b68c-90cbf9e65a16" name="set-unique-record-id-sub-flow" />
+					</json-logger:logger-scope>
+					<json-logger:logger-scope doc:name="log-scope-for-get-mechanical-step" doc:id="3b9adb1c-a589-415e-8f84-afc3575fa2e2">
+						<flow-ref doc:name="get-mechanical-data-sub-flow-ref" doc:id="e64a6ce3-d430-41f0-afed-bb9871c80248" name="get-mechanical-data-sub-flow" />
+					</json-logger:logger-scope>
+					<json-logger:logger-scope doc:name="log-scope-for-transform-step" doc:id="1c3af55c-9e1d-414b-b060-6c77b25cc837" scopeTracePoint="DATA_TRANSFORM_SCOPE">
+						<flow-ref doc:name="transform-asset-mechanical-record-sub-flow-ref" doc:id="1b2c90ba-9cfb-4593-8b27-39a05357895f" name="transform-asset-mechanical-record-sub-flow" />
+					</json-logger:logger-scope>
+				</parallel-foreach>	
+			<json-logger:logger-scope doc:name="log-scope-for-transform-step" doc:id="81bd0d5b-c2a5-4935-ac0f-6c9393871be8" category="mechanicalDataFromDotNetAPI">
+				<flow-ref doc:name="asset-mechanical-salesforce-upsert-sub-flow-for-parallel-foreach-ref" doc:id="16b5d424-d354-47ec-966e-bdd650a3b781" name="asset-mechanical-salesforce-upsert-sub-flow-for-parallel-foreach" />
+			</json-logger:logger-scope>
+			<json-logger:logger-scope doc:name="log-scope-for-transform-step" doc:id="a6ef6bc3-7333-4ea1-964b-0f5b071f8688" >
+				<flow-ref doc:name="update-records-to-staging-table-sub-flow-ref" doc:id="5db04892-315b-4b92-9a97-bcb46eddf9b7" name="update-records-to-staging-table-sub-flow"/>
+			</json-logger:logger-scope>
+
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="96d29710-1438-4478-927f-642bb87b8797" >
+					<logger level="INFO" doc:name="Logger" doc:id="1de08327-b5f9-4490-9f0d-d7e99d1e8dbc" />
+				</on-error-continue>
+			</error-handler>
+		</try>
+		
+		</foreach>
+		<ee:transform doc:name="Prepare Asset Mechanical Report" doc:id="d498060a-d04b-4867-9e83-84aafaee8b22">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output applicaiton/json
+---
+{
+ message: "Synced records : "
+ 
+//++ "\n Time [milliseconds]: " 		++ payload.elapsedTimeInMillis!
+//++ "\n Total Records: "				++ payload.totalRecords!
+//++ "\n Successful Records: "		++ payload.successfulRecords!
+//++ "\n Failed Records: "			++ payload.failedRecords!
+//++ "\n Loaded Records: "			++ payload.loadedRecords!
+//++ "\n Processed Records: " 		++ payload.processedRecords!
+++ sizeOf(payload) 
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+		<json-logger:logger correlationId="#[vars.batchRecord.id]" doc:name="log-sync-process-end" doc:id="b4784268-1300-4e58-8073-e51343dea7a4" config-ref="JSON_Logger_Config" message="Asset Mechanical Sync process has finished!" />
+	</sub-flow>
+
+</mule>

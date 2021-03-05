@@ -1,0 +1,991 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd 
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+	
+	<os:object-store name="SFBulkJob" doc:name="Object store" doc:id="90e05fba-5dce-4e85-86e9-2f8678ddecf8" entryTtl="1" entryTtlUnit="DAYS" expirationIntervalUnit="DAYS"/>
+	<flow name="asset-mechanical-retrieve-db-recordsFlow" doc:id="57bad875-27db-48b8-8347-b7284bfdf80b">
+		
+		<json-logger:logger doc:id="5282c208-25fe-44cf-bfba-193c98f82760" doc:name="" config-ref="JSON_Logger_Config" message="Retrieving data from staging table" tracePoint="BEFORE_REQUEST" >
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<db:select doc:name="CDC table" doc:id="16245f9f-9ddc-4946-8823-b314e2668ef4" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>${mechanical.database.retrieve}</db:sql>
+		</db:select>
+		<json-logger:logger doc:id="585bf9ce-f91b-40a2-bf6d-e004d8a8fde3" doc:name="" config-ref="JSON_Logger_Config" message="#['Number of asset records retrieved from staging table :' ++ sizeOf(payload)]" tracePoint="AFTER_REQUEST" >
+			<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<choice doc:name="Choice" doc:id="799e53b1-fa76-4f13-a95d-47aeaf9dca8d">
+			<when expression="#[sizeOf(payload default []) &gt; 0]">
+				<flow-ref doc:name="asset-mechanical-BatchJob" doc:id="e2079d14-6fa5-4edb-accd-0cab9a7fa89c" name="asset-mechanical-BatchJobFlow" />
+			</when>
+			<otherwise>
+				<json-logger:logger doc:id="4f929668-b98d-4e8a-8b07-4b7f138e1c38" doc:name="" config-ref="JSON_Logger_Config" message="No data retrieved from DB" tracePoint="BEFORE_REQUEST" >
+					<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+				</json-logger:logger>
+			
+</otherwise>
+		</choice>
+	</flow>
+	<sub-flow name="asset-mechanical-BatchJobFlow" doc:id="7cc8f4b9-be39-4ed7-993e-0f8cee81755f">
+		<batch:job jobName="asset-mechanicalBatch_Job" doc:id="7f130772-8217-4fe1-be14-e1030c57a3fe" maxFailedRecords="-1">
+			<batch:process-records>
+				<batch:step name="Batch_Step" doc:id="014cd2d6-3a30-442b-b3b6-3933777d95ec">
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="314ee762-dcdc-4f15-9d06-d6296d9bafa0" size="2000">
+						<flow-ref doc:name="upsert-Mechanical-data-to-RF" doc:id="817dbb6f-3553-47e7-9ba9-3daa12fc74ea" name="upsert-Mechanical-data-to-RF" />
+					</batch:aggregator>
+					<flow-ref doc:name="asset-mechanical-call-DotNetApiFlow" doc:id="7d31f1cd-7a5e-45ca-9b08-6c7d9b7e5cd2" name="asset-mechanical-call-DotNetApiFlow" />
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete>
+				<os:retrieve doc:name="Retrieve" doc:id="2bc4b739-de73-4ba5-a601-cd6fbfed3e84" key="orgReqList" target="orgReq" objectStore="SFBulkJob" targetValue="#[flatten(payload)]">
+					<os:default-value ><![CDATA[#[%dw 2.0
+output application/java
+---
+[]]]]></os:default-value>
+				</os:retrieve>
+				<json-logger:logger doc:name="Logger" doc:id="9f60e177-273a-43fa-8811-a437b966a2cb" config-ref="JSON_Logger_Config" message="Executing on complete flow">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule
+import * from dw::Runtime
+ output application/json ---
+{
+    payload: (payload) wait 300000
+
+}]]]></json-logger:content>
+		</json-logger:logger>
+				<flow-ref doc:name="asset-mechanical-retrieve-results-SFFlow" doc:id="0bd66251-7a26-46d6-9496-e2e4a6a7ae4d" name="asset-mechanical-retrieve-results-SFFlow"/>
+				<flow-ref doc:name="asset-mechanical-sync-v2Flow" doc:id="fbcf36ef-dba0-4079-b2b0-70d203e3a8e5" name="asset-mechanical-sync-v2Flow"/>
+				<json-logger:logger doc:name="Logger" doc:id="935f88e4-a591-46d6-9fd7-49c952c1f59d" config-ref="JSON_Logger_Config" message="Sync job completed">
+					<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+				</json-logger:logger>
+			
+</batch:on-complete>
+		</batch:job>
+	</sub-flow>
+	<flow name="asset-mechanical-call-DotNetApiFlow" doc:id="495d88d8-0919-410c-9c31-2f0583716098" >
+		<try doc:name="Try" doc:id="2c142f8c-b630-4cdb-a9de-35b5ca8adb8e" >
+			<http:request method="GET" doc:name=".net api" doc:id="b9b7960a-4ea8-4220-bc53-ec8c23cdaeca" config-ref="Asset_HTTPS_Request_configuration" path="${http.requester.tas.mechanical.path}" outputMimeType="application/json">
+			<http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+payload]]]></http:body>
+			<http:uri-params><![CDATA[#[output application/java
+---
+{
+	"assetId" : payload.TASAssetId
+}]]]></http:uri-params>
+		</http:request>
+			<error-handler >
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="ea644cdb-7218-4d36-850e-caddddca4d8f" >
+					<json-logger:logger doc:id="1cff6ecd-6381-453d-8014-f0522e2d9894" doc:name="" config-ref="JSON_Logger_Config" message="#['Failure sending request to .Net API for asset:' ++ payload.TASAssetId]" tracePoint="EXCEPTION">
+						<json-logger:content ><![CDATA[#[output application/json 
+---
+{
+    error: error.description
+}]]]></json-logger:content>
+					</json-logger:logger>
+					<ee:transform doc:name="Transform Message" doc:id="76a8c0cf-7a02-473d-8d24-5209b2a0686e" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+{
+	"MuleBatchId":vars.batchJobInstanceId,
+	"lastUpdatedBy": 'tas-sf-asset-sync-job',
+	"integrationDate": integrationDate,
+	"lastUpdatedDate": integrationDate,
+	"comments":error.description,
+	"IntegrationStatus": "F",
+	"SFID":"",
+	"ID":payload.TASAssetId
+  
+  }
+ ]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<db:update doc:name="Update" doc:id="9373ff74-9ea9-4de4-b9f1-459bf3c9c3f1" config-ref="Shared_TasSupport_Database_Config">
+						<db:sql >${mechanical.database.update}</db:sql>
+						<db:input-parameters ><![CDATA[#[payload]]]></db:input-parameters>
+					</db:update>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="5fd08531-ad1c-4e97-9731-dcb51f938388" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+
+var attributeMap = flatten(payload.components.attributes default []) map {
+	($.attributeId): $.value
+} reduce ($$ ++ $)
+
+var componentAttributeMap = ((payload.components default []) map {
+	($.componentId): {
+		dateApplied: $.dateApplied,
+		($.attributes map {
+			($.attributeId):$
+		})
+	}
+} reduce ($$ ++ $))
+
+//var formattingDate = (d) -> (d as LocalDateTime as String {format: "MM/dd/yyyy"}) default null
+//var formattingDate = (d) -> (d as DateTime as {format: "yyyy-MM-dd'T'HH:mm:ss.SSSz"}) default null
+//var formattingDate = (d) ->  (d as DateTime as String {format: "yyyy-MM-dd'T'HH:mm:ss.SSSz"}) default null
+
+
+var formattingDate = (d) ->  (d as DateTime) default null
+//((d ++ ".001-05:00") as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSZ"} ) default null
+
+
+var componentDate = (componentId) -> (formattingDate((componentAttributeMap[(componentId as String)]).dateApplied)) default null
+
+var componentValue = 
+(componentId) -> (componentAttributeMap[(componentId as String)]) default null
+
+var componentAttributeValue = 
+(componentId, attributeId) -> (componentAttributeMap[(componentId as String)][(attributeId as String)].value) default null
+
+var attibuteValueById = 
+(attributeId) -> (attributeMap[attributeId as String]) default null
+---
+
+{
+	
+//Car_Body_Flr_Cradle_Or_Trough_Orient__c : componentAttributeValue(,) default ""  replace '"' with "'",
+//Ecp_Brake_Type_Ecp_Ready__c : componentAttributeValue(,) default ""  replace '"' with "'",
+//Eduction_Val_No1_Connection_Val_No1__c : componentAttributeValue(,) default ""  replace '"' with "'",
+A_End_Coupler__c : componentAttributeValue(15,27) default ""  replace '"' with "'",
+Aar_4_2_Certificate_Of_Construction__c : componentAttributeValue(49,178) default ""  replace '"' with "'",
+Aar_Car_Type_Aar_Car_Type__c : componentAttributeValue(45,87) default ""  replace '"' with "'",
+Aar_Mechanical_Designation__c : componentAttributeValue(46,88) default ""  replace '"' with "'",
+
+//"AccountID__r.RFO_TASId__c":(payload.accountId default null) default ""  replace '"' with "'",
+//Air_Connector_Type__c : componentAttributeValue(28,515) default ""  replace '"' with "'",
+Air_Val_Composition__c : componentAttributeValue(28,694) default ""  replace '"' with "'",
+Air_Val_Connection_Size__c : componentAttributeValue(28,515) default ""  replace '"' with "'",
+Air_Val_Connection__c : componentAttributeValue(28,450) default ""  replace '"' with "'",
+Air_Val_Date_Applied__c : componentDate(28) default ""  replace '"' with "'",
+Air_Val_Manuf__c : componentAttributeValue(28,357) default ""  replace '"' with "'",
+Air_Val_Model_No__c : componentAttributeValue(28,358) default ""  replace '"' with "'",
+Air_Val_SNo__c : componentAttributeValue(28,695) default ""  replace '"' with "'",
+Air_Val_Type__c : componentAttributeValue(28,43) default ""  replace '"' with "'",
+"Asset__r.RFO_TASId__c" : payload.assetId,
+BOV_Current_per_Mechanical_Data__c : componentAttributeValue(74,571) default ""  replace '"' with "'",
+BOV_Handle_Type__c : componentAttributeValue(377,912) default ""  replace '"' with "'",
+B_End_Coupler__c : componentAttributeValue(222,432) default ""  replace '"' with "'",
+Bolster_A_Aar_Identification_No_A_End__c : componentAttributeValue(33,525) default ""  replace '"' with "'",
+Bolster_A_Manufacturer_A_End__c : componentAttributeValue(33,392) default ""  replace '"' with "'",
+Bolster_A_Pattern_No_A_End__c : componentAttributeValue(33,548) default ""  replace '"' with "'",
+Bolster_A_Type_A_End__c : componentAttributeValue(33,70) default ""  replace '"' with "'",
+Bottom_Gate_Date_Applied__c : componentDate(228) default ""  replace '"' with "'",
+Bottom_Gate_Manufacturer__c : componentAttributeValue(228,472) default ""  replace '"' with "'",
+Bottom_Gate_Model__c : componentAttributeValue(228,473) default ""  replace '"' with "'",
+Bottom_Gate_Size__c : componentAttributeValue(228,474) default ""  replace '"' with "'",
+Bottom_Gate_Type__c : componentAttributeValue(228,475) default ""  replace '"' with "'",
+Bottom_Outlet_Val_Bottom_Outlet_Val__c : componentAttributeValue(74,453) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Cap_Gasket__c : componentAttributeValue(315,516) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Composition__c : componentAttributeValue(74,135) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Date_Applied__c : componentDate(74) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Manufacturer__c : componentAttributeValue(74,384) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Model_Number__c : componentAttributeValue(74,379) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Protection_Level__c : componentAttributeValue(74,572) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Serial_Number__c : componentAttributeValue(74,696) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Size__c : componentAttributeValue(74,571) default ""  replace '"' with "'",
+Bottom_Outlet_Valve_Type__c : componentAttributeValue(74,200) default ""  replace '"' with "'",
+Bov_Adaptor_Material__c : componentAttributeValue(330,785) default ""  replace '"' with "'",
+Bov_Adaptor_Size__c : componentAttributeValue(330,784) default ""  replace '"' with "'",
+Bov_Auxiliary_Valve_Composition__c : componentAttributeValue(314,782) default ""  replace '"' with "'",
+Bov_Auxiliary_Valve_Manufacturer__c : componentAttributeValue(314,779) default ""  replace '"' with "'",
+Bov_Auxiliary_Valve_Model__c : componentAttributeValue(314,780) default ""  replace '"' with "'",
+Bov_Auxiliary_Valve_Size__c : componentAttributeValue(314,781) default ""  replace '"' with "'",
+Bov_Auxiliary_Valve_Type__c : componentAttributeValue(314,738) default ""  replace '"' with "'",
+Bov_Cap_Material__c : componentAttributeValue(331,787) default ""  replace '"' with "'",
+Bov_Cap_Size__c : componentAttributeValue(331,786) default ""  replace '"' with "'",
+Bov_Handle_Date_Applied__c : componentDate(377) default ""  replace '"' with "'",
+Box_Car_Side_Door_Side_Door_Height__c : componentAttributeValue(274,890) default ""  replace '"' with "'",
+Box_Car_Side_Door_Side_Door_Orient__c : componentAttributeValue(274,891) default ""  replace '"' with "'",
+Box_Car_Side_Door_Side_Door_Width__c : componentAttributeValue(274,889) default ""  replace '"' with "'",
+Box_Car_Side_Door_Side_Door__c : componentAttributeValue(274,279) default ""  replace '"' with "'",
+Brake_Beam_Wear_Plate_Composition__c : componentAttributeValue(251,580) default ""  replace '"' with "'",
+Brake_Beams_Manufacturer__c : componentAttributeValue(5,581) default ""  replace '"' with "'",
+Brake_Beams_Type__c : componentAttributeValue(5,16) default ""  replace '"' with "'",
+Brake_Cylinder_Type_A_End__c : componentAttributeValue(61,109) default ""  replace '"' with "'",
+Brake_Cylnder_Tk_Brake_Cylnder_Size__c : componentAttributeValue(61,110) default ""  replace '"' with "'",
+Brake_Shoe_Keys_Type__c : componentAttributeValue(252,582) default ""  replace '"' with "'",
+Brake_Shoes_Type__c : componentAttributeValue(253,584) default ""  replace '"' with "'",
+Brake_Val_Emergency_Portion_B_Model__c : componentAttributeValue(1,138) default ""  replace '"' with "'",
+Brake_Val_Service_Portion_B_Manuf__c : componentAttributeValue(261,570) default ""  replace '"' with "'",
+Braking_Ratio_Brak_Ratio_Handbrake__c : componentAttributeValue(262,599) default ""  replace '"' with "'",
+Braking_Ratio_Braking_Ratio_Empty__c : componentAttributeValue(262,598) default ""  replace '"' with "'",
+Braking_Ratio_Braking_Ratio_Loaded__c : componentAttributeValue(262,600) default ""  replace '"' with "'",
+Build_Date__c : formattingDate(payload.buildDate) default ""  replace '"' with "'",
+Built_By_Builders_Plant_Number__c : componentAttributeValue(19,86) default ""  replace '"' with "'",
+//Built_By_Built_By__c : componentAttributeValue(19,35) default ""  replace '"' with "'",
+Capacity_Design_Capacity__c : componentAttributeValue(229,622) default ""  replace '"' with "'",
+Capacity__c : componentAttributeValue(229,467) default ""  replace '"' with "'",
+Car_Mark__c : payload.carMark default null,
+Car_Number__c : (payload.carNumber as String) default null,
+Center_Plate_Diameter__c : componentAttributeValue(264,631) default ""  replace '"' with "'",
+Center_Plate_Liners_Vert_Horiz__c : componentAttributeValue(265,676) default ""  replace '"' with "'",
+Commodity_Current_Commodity__c : componentAttributeValue(241,540) default ""  replace '"' with "'",
+Coupler_A_Date_Applied__c : componentDate(15) default ""  replace '"' with "'",
+Coupler_A_Manufacturer_A_End__c : componentAttributeValue(15,343) default ""  replace '"' with "'",
+//Coupler_A_Type_A_End__c : componentAttributeValue(15,27) default ""  replace '"' with "'",
+Coupler_B_Date_Applied__c : componentDate(222) default ""  replace '"' with "'",
+Coupler_B_Manufacturer_B_End__c : componentAttributeValue(222,427) default ""  replace '"' with "'",
+Coupler_Carrier_Wear_Plate_Material__c : componentAttributeValue(269,632) default ""  replace '"' with "'",
+Curv_Horizontal_Coupled_To_Base_Car__c : componentAttributeValue(270,623) default ""  replace '"' with "'",
+Curv_Horizontal_Uncoupled__c : componentAttributeValue(270,624) default ""  replace '"' with "'",
+Curv_Vertical_Coupled_To_Base_Car__c : componentAttributeValue(270,625) default ""  replace '"' with "'",
+Curv_Vertical_Uncoupled__c : componentAttributeValue(270,626) default ""  replace '"' with "'",
+Cushion_End_Of_Car_Cushioning__c : componentAttributeValue(271,639) default ""  replace '"' with "'",
+DOT_Construction_Class__c : componentAttributeValue(18,34) default ""  replace '"' with "'",
+DOT_Stencil_Class__c : componentAttributeValue(18,398) default ""  replace '"' with "'",
+Doors_Door_Type__c : componentAttributeValue(206,489) default ""  replace '"' with "'",
+Doors_Manuf__c : componentAttributeValue(206,387) default ""  replace '"' with "'",
+Doors_Model_No__c : componentAttributeValue(206,487) default ""  replace '"' with "'",
+Doors_No_Of_Doors__c : componentAttributeValue(206,486) default ""  replace '"' with "'",
+Dot_Class_Packing_Group__c : componentAttributeValue(18,739) default ""  replace '"' with "'",
+Draft_Gear_A_Manuf__c : componentAttributeValue(14,633) default ""  replace '"' with "'",
+Draft_Gear_A_Type__c : componentAttributeValue(14,25) default ""  replace '"' with "'",
+Draft_Gear_B_Manuf__c : componentAttributeValue(316,741) default ""  replace '"' with "'",
+Draft_Gear_B_Type__c : componentAttributeValue(316,743) default ""  replace '"' with "'",
+Ecp_Brake_Type_Ecp_Brake_Type__c : componentAttributeValue(364,882) default ""  replace '"' with "'",
+Eduction_Pipe_Comp_Of_Pipe_No1__c : componentAttributeValue(27,37) default ""  replace '"' with "'",
+Eduction_Pipe_Date_Applied__c : componentDate(27) default ""  replace '"' with "'",
+Eduction_Pipe_Eduction_Pipe_Size__c : componentAttributeValue(27,557) default ""  replace '"' with "'",
+Eduction_Pipe_Mount_Config_Of_Pipe__c : componentAttributeValue(27,533) default ""  replace '"' with "'",
+Eduction_Pipe__c : componentAttributeValue(27,556) default ""  replace '"' with "'",
+Eduction_Val_No1_Connection_No1__c : componentAttributeValue(272,745) default ""  replace '"' with "'",
+Eduction_Val_No1_Date_Applied__c : componentDate(272) default ""  replace '"' with "'",
+Eduction_Val_No1_Manuf_Val_No1__c : componentAttributeValue(272,547) default ""  replace '"' with "'",
+Eduction_Val_No1_Model_Val_No1__c : componentAttributeValue(272,65) default ""  replace '"' with "'",
+Eduction_Val_No1_SNo_Val_No1__c : componentAttributeValue(272,698) default ""  replace '"' with "'",
+Eduction_Val_No1_Size_Val_No1__c : componentAttributeValue(272,569) default ""  replace '"' with "'",
+Eduction_Val_No1_Type_No1__c : componentAttributeValue(272,746) default ""  replace '"' with "'",
+Eduction_Valve__c : componentAttributeValue(272,535) default ""  replace '"' with "'",
+Empty_Load_Sensor_B_Manuf__c : componentAttributeValue(60,476) default ""  replace '"' with "'",
+Empty_Load_Sensor_B_Model_No__c : componentAttributeValue(60,477) default ""  replace '"' with "'",
+Empty_Load_Sensor_B_Type__c : componentAttributeValue(60,108) default ""  replace '"' with "'",
+//Exterior_Paint_Date_Applied__c : componentDate(29) default ""  replace '"' with "'",
+Exterior_Paint_Shop_Location__c : componentAttributeValue(29,365) default ""  replace '"' with "'",
+Exterior_Paint_Surf_Prep_Exterior__c : componentAttributeValue(29,658) default ""  replace '"' with "'",
+Exterior_Paint_Type__c : componentAttributeValue(29,58) default ""  replace '"' with "'",
+Extreme_Height__c : componentAttributeValue(52,100) default ""  replace '"' with "'",
+Extreme_Width__c : componentAttributeValue(53,101) default ""  replace '"' with "'",
+Extrm_Width_Height_At_Extrm_Width__c : componentAttributeValue(53,252) default ""  replace '"' with "'",
+File_Number__c : payload.fileNumber default null,
+Fitting_Type__c : componentAttributeValue(91,189) default ""  replace '"' with "'",
+Flange_Gasket__c : componentAttributeValue(317,573) default ""  replace '"' with "'",
+Flat_Gaskets_Date_Applied__c : componentDate(317) default ""  replace '"' with "'",
+//Flat_Gaskets_Flat_Gasket_Material__c : componentAttributeValue(317,573) default ""  replace '"' with "'",
+Floor_Slopes_Center_Partition__c : componentAttributeValue(275,646) default ""  replace '"' with "'",
+Floor_Slopes_Floors_Lower__c : componentAttributeValue(275,644) default ""  replace '"' with "'",
+Floor_Slopes_Floors_Upper__c : componentAttributeValue(275,645) default ""  replace '"' with "'",
+Floor_Slopes_Outside_Hopper__c : componentAttributeValue(275,647) default ""  replace '"' with "'",
+Floor_Type__c : componentAttributeValue(94,192) default ""  replace '"' with "'",
+Friction_Shoes_Model_Style__c : componentAttributeValue(238,526) default ""  replace '"' with "'",
+Gauge_Device_No1_Configuration__c : componentAttributeValue(277,700) default ""  replace '"' with "'",
+Gauge_Device_No1_Date_Applied__c : componentDate(277) default ""  replace '"' with "'",
+Gauge_Device_No1_SNo__c : componentAttributeValue(277,517) default ""  replace '"' with "'",
+Gauging_Device__c : componentAttributeValue(277,451) default ""  replace '"' with "'",
+//Gross_Rail_Limit__c : attibuteValueById(507) default ""  replace '"' with "'",
+//Gross_Rail_Limit__c : componentAttributeValue(29,58) default ""  replace '"' with "'",
+Eduction_Val_No1_Composition_No1__c:  componentAttributeValue(272,535) default ""  replace '"' with "'",
+Eduction_Val_No2_Composition_No2__c: componentAttributeValue(273,536) default ""  replace '"' with "'",
+Eduction_Val_No2_Size_Val_No2__c: componentAttributeValue(273,537) default ""  replace '"' with "'",
+Eduction_Val_No1_Model_Val_No2__c: componentAttributeValue(273,399) default ""  replace '"' with "'",
+Sample_Line_Model__c: componentAttributeValue(23,800) default ""  replace '"' with "'",
+Insulation_Thickness__c: componentAttributeValue(16,30) default ""  replace '"' with "'", 
+
+Hand_Brake_Date_Applied__c : componentDate(3) default ""  replace '"' with "'",
+Hand_Brake_Group__c : componentAttributeValue(3,401) default ""  replace '"' with "'",
+Hand_Brake_Hand_Brake_Chain_Painted__c : componentAttributeValue(3,478) default ""  replace '"' with "'",
+Hand_Brake_Manuf__c : componentAttributeValue(3,602) default ""  replace '"' with "'",
+Hand_Brake_Type__c : componentAttributeValue(3,154) default ""  replace '"' with "'",
+Hatch_Cover_Composition__c : componentAttributeValue(71,123) default ""  replace '"' with "'",
+Hatch_Cover_Manufacturer__c : componentAttributeValue(71,860) default ""  replace '"' with "'",
+Hatch_Cover_Model__c : componentAttributeValue(71,861) default ""  replace '"' with "'",
+Hatch_Opening_Number_Of_Hatches__c : componentAttributeValue(70,514) default ""  replace '"' with "'",
+Hatch_Opening_Size__c : componentAttributeValue(70,124) default ""  replace '"' with "'",
+Hatch_Opening_Type__c : componentAttributeValue(70,542) default ""  replace '"' with "'",
+Head_Head_Brace__c : componentAttributeValue(13,541) default ""  replace '"' with "'",
+Head_Material__c : componentAttributeValue(13,22) default ""  replace '"' with "'",
+Head_Thickness__c : componentAttributeValue(13,23) default ""  replace '"' with "'",
+Headshield_Date_Applied__c : componentDate(369) default ""  replace '"' with "'",
+Headshield_Headshield__c : componentAttributeValue(369,544) default ""  replace '"' with "'",
+Heater_Coils_Approx_Heating_Area__c : componentAttributeValue(17,611) default ""  replace '"' with "'",
+Heater_Coils_Coil_Material__c : componentAttributeValue(17,884) default ""  replace '"' with "'",
+Heater_Coils_Configuration__c : componentAttributeValue(17,31) default ""  replace '"' with "'",
+Heater_Coils_Id_And_Material__c : componentAttributeValue(17,33) default ""  replace '"' with "'",
+Heater_Coils_Inlets_Or_Outlets__c : componentAttributeValue(17,612) default ""  replace '"' with "'",
+Heater_Coils_Location__c : componentAttributeValue(17,198) default ""  replace '"' with "'",
+Heater_Coils_Manuf__c : componentAttributeValue(17,352) default ""  replace '"' with "'",
+Heater_Coils_Model_No__c : componentAttributeValue(17,353) default ""  replace '"' with "'",
+Inside_Height_Inside_Height__c : componentAttributeValue(88,186) default ""  replace '"' with "'",
+Inside_Length_Inside_Length__c : componentAttributeValue(230,471) default ""  replace '"' with "'",
+Inside_Width_Inside_Width__c : componentAttributeValue(87,185) default ""  replace '"' with "'",
+Insulation_Car_Location__c : componentAttributeValue(16,351) default ""  replace '"' with "'",
+Insulation_Composition_And_Density__c : componentAttributeValue(16,29) default ""  replace '"' with "'",
+Insulation_Material__c : componentAttributeValue(16,30) default ""  replace '"' with "'",
+Interior_Lining_Date_Applied__c : componentDate(30) default ""  replace '"' with "'",
+Interior_Lining_Manuf__c : componentAttributeValue(30,370) default ""  replace '"' with "'",
+Jacketing_Jacket_Head_And_Shell__c : componentAttributeValue(279,613) default ""  replace '"' with "'",
+Len_Ovr_Tk_Centers__c : componentAttributeValue(51,99) default ""  replace '"' with "'",
+Length_Over_Coupler_Pulling__c : componentAttributeValue(48,97) default ""  replace '"' with "'",
+Length_Over_Striker__c : componentAttributeValue(50,98) default ""  replace '"' with "'",
+Light_Weight__c : componentAttributeValue(374,80) default ""  replace '"' with "'",
+Lining_By__c : componentAttributeValue(30,372) default ""  replace '"' with "'",
+Lining_Date__c : componentDate(30) default ""  replace '"' with "'",
+Lining_Material__c : componentAttributeValue(30,61) default ""  replace '"' with "'",
+Lining_Type__c : componentAttributeValue(30,60) default ""  replace '"' with "'",
+Load_Limit__c : componentAttributeValue(374,179) default ""  replace '"' with "'",
+Manufacturer__c : componentAttributeValue(19,35) default ""  replace '"' with "'",
+Manway_Composition__c : componentAttributeValue(26,45) default ""  replace '"' with "'",
+Manway_Cover_Aar_Manway_Style__c : componentAttributeValue(73,518) default ""  replace '"' with "'",
+Manway_Cover_Composition__c : componentAttributeValue(73,132) default ""  replace '"' with "'",
+Manway_Cover_Special_Features__c : componentAttributeValue(73,47) default ""  replace '"' with "'",
+Manway_Gasket__c : componentAttributeValue(320,400) default ""  replace '"' with "'",
+Manway_Size__c : componentAttributeValue(26,46) default ""  replace '"' with "'",
+Mill_Gon_Inside_Height_Of_Sides__c : componentAttributeValue(280,617) default ""  replace '"' with "'",
+Name:payload.assetId,
+Nitrogen_Pad__c : componentAttributeValue(313,648) default ""  replace '"' with "'",
+No8_Vent_Valve_Date_Applied__c : componentDate(59) default ""  replace '"' with "'",
+No8_Vent_Valve_Type__c : componentAttributeValue(59,107) default ""  replace '"' with "'",
+Nozzle_Reinforce_Pad_Date_Applied__c : componentDate(378) default ""  replace '"' with "'",
+Nozzle_Reinforcement_Pad__c : componentAttributeValue(378,915) default ""  replace '"' with "'",
+Number_of_Bottom_Gates__c : componentAttributeValue(228,470) default ""  replace '"' with "'",
+Number_of_Coil_Lines__c : componentAttributeValue(17,32) default ""  replace '"' with "'",
+Number_of_Compartments__c : componentAttributeValue(57,105) default ""  replace '"' with "'",
+O_Ring__c : componentAttributeValue(218,419) default ""  replace '"' with "'",
+//O_Rings_O_Rings_Material__c : componentAttributeValue(218,419) default ""  replace '"' with "'",
+Outage_Scale_Allow_Weight_Per_Gallon__c : componentAttributeValue(281,620) default ""  replace '"' with "'",
+Outage_Scale_Effect_Capacity_Gallons__c : componentAttributeValue(281,621) default ""  replace '"' with "'",
+Outage_Scale_Outage_Scale__c : componentAttributeValue(281,703) default ""  replace '"' with "'",
+Outlet_Saddle_Outlet_Saddle__c : componentAttributeValue(282,704) default ""  replace '"' with "'",
+Paint_By__c : componentAttributeValue(29,362) default ""  replace '"' with "'",
+Paint_Color__c : componentAttributeValue(29,57) default ""  replace '"' with "'",
+Paint_Date__c : formattingDate(componentDate(29)) default ""  replace '"' with "'",
+Paint_Material__c : componentAttributeValue(29,363) default ""  replace '"' with "'",
+Pd_Air_Inlet_Connection_Size__c : componentAttributeValue(357,853) default ""  replace '"' with "'",
+Pd_Air_Inlet_Pipe_Material__c : componentAttributeValue(356,855) default ""  replace '"' with "'",
+Pd_Air_Inlet_Pipe_Size__c : componentAttributeValue(356,854) default ""  replace '"' with "'",
+Pd_Product_Outlet_Connection_Size__c : componentAttributeValue(359,856) default ""  replace '"' with "'",
+Pd_Product_Outlet_Pipe_Material__c : componentAttributeValue(358,858) default ""  replace '"' with "'",
+Pd_Product_Outlet_Pipe_Size__c : componentAttributeValue(358,857) default ""  replace '"' with "'",
+Pedestal_Roof_Liners__c : componentAttributeValue(283,677) default ""  replace '"' with "'",
+Plate_Clearance_Plate_Clearance__c : componentAttributeValue(65,113) default ""  replace '"' with "'",
+Protective_Housing__c : componentAttributeValue(163,300) default ""  replace '"' with "'",
+Reflector_Color__c : componentAttributeValue(236,510) default ""  replace '"' with "'",
+Reflector_Performer__c : componentAttributeValue(236,904) default ""  replace '"' with "'",
+Refrig_Unit_Fuel_Tank_Capacity__c : componentAttributeValue(286,481) default ""  replace '"' with "'",
+Refrig_Unit_Reefer_Unit_Manuf__c : componentAttributeValue(286,483) default ""  replace '"' with "'",
+Refrig_Unit_Reefer_Unit_Model_No__c : componentAttributeValue(286,484) default ""  replace '"' with "'",
+Refrig_Unit_Reefer_Unit_SNo__c : componentAttributeValue(286,485) default ""  replace '"' with "'",
+Refrig_Unit_Refrigeration_Fuel_Type__c : componentAttributeValue(286,887) default ""  replace '"' with "'",
+Remote_Monitor_Equip_Gps_Model_No__c : componentAttributeValue(287,482) default ""  replace '"' with "'",
+Remote_Monitor_Equip_Gps_SNo__c : componentAttributeValue(287,874) default ""  replace '"' with "'",
+Roof_Type__c : componentAttributeValue(177,319) default ""  replace '"' with "'",
+Rupture_Disc_Mfr__c : componentAttributeValue(296,538) default ""  replace '"' with "'",
+Rupture_Disc__c : componentAttributeValue(296,539) default ""  replace '"' with "'",
+Safety_Relief_Device_Type__c : componentAttributeValue(293,888) default ""  replace '"' with "'",
+Safety_Val_No1_Date_Applied__c : componentDate(294) default ""  replace '"' with "'",
+Safety_Val_No1_Flow_Capacity__c : componentAttributeValue(294,913) default ""  replace '"' with "'",
+Safety_Val_No1_Manuf__c : componentAttributeValue(294,51) default ""  replace '"' with "'",
+Safety_Val_No1_Model_No__c : componentAttributeValue(294,52) default ""  replace '"' with "'",
+Safety_Val_No1_Pressure_Setting__c : componentAttributeValue(294,503) default ""  replace '"' with "'",
+Safety_Val_No1_SNo_Val_No1__c : componentAttributeValue(294,705) default ""  replace '"' with "'",
+Safety_Val_No2_Composition__c : componentAttributeValue(295,706) default ""  replace '"' with "'",
+Safety_Val_No2_Date_Applied__c : componentDate(295) default ""  replace '"' with "'",
+Safety_Val_No2_Flow_Capacity__c : componentAttributeValue(295,914) default ""  replace '"' with "'",
+Safety_Val_No2_Manuf__c : componentAttributeValue(295,707) default ""  replace '"' with "'",
+Safety_Val_No2_Model_No__c : componentAttributeValue(295,708) default ""  replace '"' with "'",
+Safety_Val_No2_Pressure_Setting__c : componentAttributeValue(295,709) default ""  replace '"' with "'",
+Safety_Val_No2_SNo_Val_No2__c : componentAttributeValue(295,710) default ""  replace '"' with "'",
+Safety_Valve_Composition__c : componentAttributeValue(294,50) default ""  replace '"' with "'",
+Safety_Valve_QTY__c : componentAttributeValue(293,323) default ""  replace '"' with "'",
+//Safety_Vent_Manuf__c : componentAttributeValue(328,767) default ""  replace '"' with "'",
+Safety_Vent_Model__c : componentAttributeValue(328,768) default ""  replace '"' with "'",
+Safety_Vent__c : componentAttributeValue(328,767) default ""  replace '"' with "'",
+Sample_Line_Configuration__c : componentAttributeValue(23,53) default ""  replace '"' with "'",
+Sample_Line_Manuf__c : componentAttributeValue(23,799) default ""  replace '"' with "'",
+Sample_Line_Sample_Line_Check_Val__c : componentAttributeValue(23,418) default ""  replace '"' with "'",
+Sample_Line_Size__c : componentAttributeValue(23,801) default ""  replace '"' with "'",
+Sample_Valve__c : componentAttributeValue(23,800) default ""  replace '"' with "'",
+Side_Bearing_Manuf__c : componentAttributeValue(239,528) default ""  replace '"' with "'",
+Side_Bearing_Type__c : componentAttributeValue(239,527) default ""  replace '"' with "'",
+Slack_Adjuster_B_Group_B_End__c : componentAttributeValue(298,938) default ""  replace '"' with "'",
+Slack_Adjuster_B_Manufacturer_B_End__c : componentAttributeValue(298,94) default ""  replace '"' with "'",
+Slack_Adjuster_B_Type_B_End__c : componentAttributeValue(298,605) default ""  replace '"' with "'",
+Sparger_System_Sparger_System__c : componentAttributeValue(234,504) default ""  replace '"' with "'",
+Springs_Manuf__c : componentAttributeValue(64,686) default ""  replace '"' with "'",
+Springs_Type__c : componentAttributeValue(64,112) default ""  replace '"' with "'",
+Star_Code_Star_Code__c : componentAttributeValue(181,325) default ""  replace '"' with "'",
+Sump_Material__c : componentAttributeValue(8,520) default ""  replace '"' with "'",
+Sump_Type__c : componentAttributeValue(8,28) default ""  replace '"' with "'",
+Tank_Bottom_Slope_Bottom_Slope__c : componentAttributeValue(54,102) default ""  replace '"' with "'",
+Tank_Shell_Material__c : componentAttributeValue(66,114) default ""  replace '"' with "'",
+Tank_Shell_Thickness__c : componentAttributeValue(66,115) default ""  replace '"' with "'",
+Tank_Size_Tank_Id__c : componentAttributeValue(68,627) default ""  replace '"' with "'",
+Tank_Size_Tank_Tangent_To_Tangent__c : componentAttributeValue(68,628) default ""  replace '"' with "'",
+TAS_Asset_ID__c : ((payload.assetId default "") as String) default ""  replace '"' with "'",	
+Test_Data_Design_Or_Test_Pressure__c : componentAttributeValue(299,629) default ""  replace '"' with "'",
+Test_Data_Tank_Test_Pressure__c : componentAttributeValue(299,643) default ""  replace '"' with "'",
+Thermal_Protection_Materials__c : componentAttributeValue(375,910) default ""  replace '"' with "'",
+Thermowell_Manuf__c : componentAttributeValue(22,54) default ""  replace '"' with "'",
+//Thermowell_Model__c : componentAttributeValue(22,711) (ALPHA-749) default ""  replace '"' with "'",
+Thermowell__c : componentAttributeValue(22,711) default ""  replace '"' with "'", 
+TkSideFr_A_Lt_Aar_CodeNo_A_End_Lt__c : componentAttributeValue(34,529) default ""  replace '"' with "'",
+TkSideFr_A_Lt_Aar_IdNo_A_End_Lt__c : componentAttributeValue(34,530) default ""  replace '"' with "'",
+TkSideFr_A_Lt_Type_A_End_Lt__c : componentAttributeValue(34,72) default ""  replace '"' with "'",
+TkSideFr_A_Right_Aar_Code_No_A_End_Rt__c : componentAttributeValue(352,835) default ""  replace '"' with "'",
+TkSideFr_A_Right_Aar_IdNo_A_End_Rt__c : componentAttributeValue(352,836) default ""  replace '"' with "'",
+TkSideFr_A_Right_Type_A_End_Rt__c : componentAttributeValue(352,832) default ""  replace '"' with "'",
+TkSideFr_B_Lt_Aar_Code_No_B_End_Lt__c : componentAttributeValue(226,688) default ""  replace '"' with "'",
+TkSideFr_B_Lt_Aar_IdNo_B_End_Lt__c : componentAttributeValue(226,689) default ""  replace '"' with "'",
+TkSideFr_B_Lt_Type_B_End_Lt__c : componentAttributeValue(226,443) default ""  replace '"' with "'",
+TkSideFr_B_Rt_Aar_Code_No_B_End_Rt__c : componentAttributeValue(353,842) default ""  replace '"' with "'",
+TkSideFr_B_Rt_Aar_IdNo_B_End_Rt__c : componentAttributeValue(353,843) default ""  replace '"' with "'",
+TkSideFr_B_Rt_Type_B_End_Rt__c : componentAttributeValue(353,840) default ""  replace '"' with "'",
+Tk_Adapters_Type__c : componentAttributeValue(300,687) default ""  replace '"' with "'",
+Tk_Stabilizers_Type__c : componentAttributeValue(301,692) default ""  replace '"' with "'",
+Top_Fittings_Protection_Type__c : componentAttributeValue(380,939) default ""  replace '"' with "'",
+Truck_Capacity__c : componentAttributeValue(35,73) default ""  replace '"' with "'",
+Type_Of_Brakes_Type_Of_Brakes__c : componentAttributeValue(302,606) default ""  replace '"' with "'",
+Uncoupling_Rod_Manuf__c : componentAttributeValue(303,634) default ""  replace '"' with "'",
+Uncoupling_Rod_Type__c : componentAttributeValue(303,635) default ""  replace '"' with "'",
+Underframe_Sill_Design__c : componentAttributeValue(12,21) default ""  replace '"' with "'",
+Unit_of_Measure__c : componentAttributeValue(229,468) default ""  replace '"' with "'",
+VRV__c : componentAttributeValue(21,521) default ""  replace '"' with "'",
+Vac_Relif_Device_Composition__c : componentAttributeValue(21,55) default ""  replace '"' with "'",
+Vac_Relif_Device_Date_Applied__c : componentDate(21) default ""  replace '"' with "'",
+Vac_Relif_Device_Model_No__c : componentAttributeValue(21,522) default ""  replace '"' with "'",
+Vac_Relif_Device_SNo__c : componentAttributeValue(21,907) default ""  replace '"' with "'",
+Vac_Relif_Device_TypeNSize_Of_Con__c : componentAttributeValue(21,523) default ""  replace '"' with "'",
+Vacuum_Rating__c : componentAttributeValue(304,630) default ""  replace '"' with "'",
+Vibrator_Fitting_Manuf__c : componentAttributeValue(305,651) default ""  replace '"' with "'",
+Vibrator_Fitting_Type__c : componentAttributeValue(305,652) default ""  replace '"' with "'",
+Walkways_And_Platforms_End__c : componentAttributeValue(306,619) default ""  replace '"' with "'",
+Walkways_And_Platforms_Top__c : componentAttributeValue(306,403) default ""  replace '"' with "'",
+Weight_Gross_Rail_Load_Built_To__c : componentAttributeValue(374,85) default ""  replace '"' with "'",
+Weight_Gross_Rail_Load_Stencilled__c : componentAttributeValue(374,507) default ""  replace '"' with "'",
+//Weight_Tare_Weight__c : componentAttributeValue(374,80) (ALPHA - 749) default ""  replace '"' with "'",
+Whl_Base_Whl_Base__c : componentAttributeValue(311,693) default ""  replace '"' with "'",
+Whl_Bearing_Type_Whl_Bearing_Type__c : componentAttributeValue(362,879) default ""  replace '"' with "'",
+Whl_Set_No1_Journal_Size_Whl_Set_1__c : componentAttributeValue(307,256) default ""  replace '"' with "'",
+Whl_Set_No1_Manuf_Axle_1__c : componentAttributeValue(307,187) default ""  replace '"' with "'",
+Whl_Set_No1_Manuf_Roller_Bearing_L1__c : componentAttributeValue(307,172) default ""  replace '"' with "'",
+Whl_Set_No1_Manuf_Roller_Bearing_R1__c : componentAttributeValue(307,916) default ""  replace '"' with "'",
+Whl_Set_No1_Manuf_Whl_L1__c : componentAttributeValue(307,76) default ""  replace '"' with "'",
+Whl_Set_No1_Manuf_Whl_R1__c : componentAttributeValue(307,771) default ""  replace '"' with "'",
+Whl_Set_No1_SNo_Axle_1__c : componentAttributeValue(307,928) default ""  replace '"' with "'",
+Whl_Set_No1_SNo_Roller_Bearing_L1__c : componentAttributeValue(307,924) default ""  replace '"' with "'",
+Whl_Set_No1_SNo_Roller_Bearing_R1__c : componentAttributeValue(307,920) default ""  replace '"' with "'",
+Whl_Set_No1_SNo_Whl_L1__c : componentAttributeValue(307,723) default ""  replace '"' with "'",
+Whl_Set_No1_SNo_Whl_R1__c : componentAttributeValue(307,727) default ""  replace '"' with "'",
+Whl_Set_No1_Size_Whl_Set_No1__c : componentAttributeValue(307,74) default ""  replace '"' with "'",
+Whl_Set_No2_Journal_Size_Whl_Set_2__c : componentAttributeValue(308,932) default ""  replace '"' with "'",
+Whl_Set_No2_Manuf_Axle_2__c : componentAttributeValue(308,663) default ""  replace '"' with "'",
+Whl_Set_No2_Manuf_Roller_Bearing_L2__c : componentAttributeValue(308,678) default ""  replace '"' with "'",
+Whl_Set_No2_Manuf_Roller_Bearing_R2__c : componentAttributeValue(308,917) default ""  replace '"' with "'",
+Whl_Set_No2_Manuf_Whl_L2__c : componentAttributeValue(308,720) default ""  replace '"' with "'",
+Whl_Set_No2_Manuf_Whl_R2__c : componentAttributeValue(308,773) default ""  replace '"' with "'",
+Whl_Set_No2_SNo_Axle_2__c : componentAttributeValue(308,929) default ""  replace '"' with "'",
+Whl_Set_No2_SNo_Roller_Bearing_L2__c : componentAttributeValue(308,925) default ""  replace '"' with "'",
+Whl_Set_No2_SNo_Roller_Bearing_R2__c : componentAttributeValue(308,921) default ""  replace '"' with "'",
+Whl_Set_No2_SNo_Whl_L2__c : componentAttributeValue(308,724) default ""  replace '"' with "'",
+Whl_Set_No2_SNo_Whl_R2__c : componentAttributeValue(308,728) default ""  replace '"' with "'",
+Whl_Set_No2_Size_Whl_Set_No2__c : componentAttributeValue(308,731) default ""  replace '"' with "'",
+Whl_Set_No3_Journal_Size_Whl_Set_3__c : componentAttributeValue(309,933) default ""  replace '"' with "'",
+Whl_Set_No3_Manuf_Axle_3__c : componentAttributeValue(309,664) default ""  replace '"' with "'",
+Whl_Set_No3_Manuf_Roller_Bearing_L3__c : componentAttributeValue(309,679) default ""  replace '"' with "'",
+Whl_Set_No3_Manuf_Roller_Bearing_R3__c : componentAttributeValue(309,918) default "" replace '"' with "'" ,
+Whl_Set_No3_Manuf_Whl_L3__c : componentAttributeValue(309,721) default ""  replace '"' with "'",
+Whl_Set_No3_Manuf_Whl_R3__c : componentAttributeValue(309,775) default ""  replace '"' with "'",
+Whl_Set_No3_SNo_Axle_3__c : componentAttributeValue(309,930) default ""  replace '"' with "'",
+Whl_Set_No3_SNo_Roller_Bearing_L3__c : componentAttributeValue(309,926) default ""  replace '"' with "'",
+Whl_Set_No3_SNo_Roller_Bearing_R3__c : componentAttributeValue(309,922)default "" replace '"' with "'" ,
+Whl_Set_No3_SNo_Whl_L3__c : componentAttributeValue(309,725)default "" replace '"' with "'" ,
+Whl_Set_No3_SNo_Whl_R3__c : componentAttributeValue(309,729) default ""  replace '"' with "'",
+Whl_Set_No3_Size_Whl_Set_No3__c : componentAttributeValue(309,732) default ""  replace '"' with "'",
+Whl_Set_No4_Journal_Size_Whl_Set_4__c : componentAttributeValue(310,934)default "" replace '"' with "'" ,
+Whl_Set_No4_Manuf_Axle_4__c : componentAttributeValue(310,665)default "" replace '"' with "'" ,
+Whl_Set_No4_Manuf_Roller_Bearing_L4__c : componentAttributeValue(310,680) default ""  replace '"' with "'",
+Whl_Set_No4_Manuf_Roller_Bearing_R4__c : componentAttributeValue(310,919)default ""  replace '"' with "'",
+Whl_Set_No4_Manuf_Whl_L4__c : componentAttributeValue(310,722)default ""  replace '"' with "'",
+Whl_Set_No4_Manuf_Whl_R4__c : componentAttributeValue(310,777)default ""  replace '"' with "'",
+Whl_Set_No4_SNo_Axle_4__c : componentAttributeValue(310,931) default "" replace '"' with "'",
+Whl_Set_No4_SNo_Roller_Bearing_L4__c : componentAttributeValue(310,927) default "" replace '"' with "'",
+Whl_Set_No4_SNo_Roller_Bearing_R4__c : componentAttributeValue(310,923)default ""  replace '"' with "'",
+Whl_Set_No4_SNo_Whl_L4__c : componentAttributeValue(310,726)default ""  replace '"' with "'",
+Whl_Set_No4_SNo_Whl_R4__c : componentAttributeValue(310,730) default ""  replace '"' with "'",
+Whl_Set_No4_Size_Whl_Set_No4__c : componentAttributeValue(310,733)  default ""  replace '"' with "'",
+Yoke_A_Manuf_A_End__c : componentAttributeValue(11,636) default ""  replace '"' with "'",
+Yoke_A_Model_A_End__c : componentAttributeValue(11,20) default ""  replace '"' with "'",
+Yoke_B_Manuf_B_End__c : componentAttributeValue(223,637) default ""  replace '"' with "'",
+Yoke_B_Model_B_End__c : componentAttributeValue(223,433) default "" replace '"' with "'"
+
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	
+</flow>
+	<flow name="upsert-Mechanical-data-to-RF" doc:id="303be5c2-051f-4c74-9c14-158630b58f67" >
+		<json-logger:logger doc:name="Logger" doc:id="00bbc803-c545-43f8-b410-116833ce53e7" config-ref="JSON_Logger_Config" message="Transforming data in Batch aggregator" tracePoint="BEFORE_TRANSFORM">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<ee:transform doc:name="Transform Message" doc:id="f41f0b97-d36c-47b6-8590-6e25e8efa306">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/csv quoteValues=true 
+---
+
+flatten(payload)
+/*payload map (payload01,indexOfPayload01 ) -> {
+Capacity__c:"",	
+Asset__c	:"",	
+CarMark__c	:"",
+CarNumber__c:"",
+DatePassed__c:"",
+NextTestDate__c:"",
+Build_Date__c:"",
+Bottom_Outlet_Valve_Cap_Gasket__c:"",
+BOV_Handle_Type__c:"",
+//TASTest_ID__c:payload01.TASTest_ID__c,
+BOV_Current_per_Mechanical_Data__c:"",
+TestName__c:"",
+TestType__c:"",
+Name:"Muletest1",
+TestResultID__c:payload01.TASTest_ID__c
+ 
+  }*/]]></ee:set-payload>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="orgReq"><![CDATA[%dw 2.0
+output application/java
+---
+
+flatten (payload) map {
+     ID:$.TAS_Asset_ID__c
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<json-logger:logger doc:name="Logger" doc:id="fb97b9e9-3b7f-4bbe-99cb-3aa4c622cf44" config-ref="JSON_Logger_Config" message="Transforming data in Batch aggregator completed">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<os:retrieve doc:name="Retrieve" doc:id="3776e028-203e-405d-affc-1a0ddf87db40" key="orgReqList" objectStore="SFBulkJob" target="orgReqList">
+			<os:default-value><![CDATA[#[%dw 2.0
+output application/java
+---
+[]]]]></os:default-value>
+		</os:retrieve>
+		<os:store doc:name="Store" doc:id="0c45b65e-6503-4bf6-ae37-7dd96e9d3fa8" key="orgReqList" objectStore="SFBulkJob">
+			<os:value><![CDATA[#[vars.orgReq ++ vars.orgReqList]]]></os:value>
+		</os:store>
+		<json-logger:logger doc:id="281962ec-1c0e-4c38-a224-9accd0232768" doc:name="" config-ref="JSON_Logger_Config" message="Upserting data to RF" tracePoint="BEFORE_REQUEST">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		<try doc:name="Try" doc:id="15552a09-88ce-41b7-ae5c-50bda2672914">
+			<salesforce:create-job-bulk-v2 objectType="MechanicalData__c" operation="upsert" doc:name="Create job bulk v 2" doc:id="2e28c778-c579-4bd1-8550-3e5704cd9c54" externalIdFieldName="TAS_Asset_ID__c" lineEnding="CRLF" target="SFId" targetValue="#[%dw 2.0
+output application/java
+---
+payload.id]" config-ref="Shared_Salesforce_Config" />
+			<json-logger:logger doc:id="9a3e9413-11ae-4fff-b03c-08cd965fc418" doc:name="" config-ref="JSON_Logger_Config" message="#['Upsert successful to SF:' ++ vars.SFId]">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="10cb5f81-68a2-4ab7-9438-ba78cfc929ae">
+					<json-logger:logger doc:id="f302f0e0-077f-4a46-acaf-e173a0716a89" doc:name="" config-ref="JSON_Logger_Config" message="#['Upsert failed to SF']">
+						<json-logger:content><![CDATA[#[output application/json 
+---
+{
+    error: error.description
+}]]]></json-logger:content>
+					</json-logger:logger>
+					<ee:transform doc:name="Transform Message" doc:id="d45f2ac3-f2b5-4d05-8632-683e442397f5">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+vars.orgReq map (payload01,indexOfPayload01 ) -> {
+"ID": payload01.ID,
+"MuleBatchId":vars.batchJobInstanceId,
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":'Salesforce Updated failed',
+"IntegrationStatus":"R" 
+
+  
+  }]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<flow-ref doc:name="asset-mechanical-update-dbSub_Flow" doc:id="ba624a3a-a9fb-4b73-b12b-0ae545b722da" name="asset-mechanical-update-dbSub_Flow" />
+				
+</on-error-propagate>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="59d8932d-8451-4988-8e5a-9cfa32cecdef">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+(vars.orgReq map (payload01,indexOfPayload01 ) -> {
+
+
+"ID": payload01.ID,
+"SFID": vars.SFId,
+"MuleBatchId":vars.batchJobInstanceId,
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":'created bulk job in Salesforce',
+"IntegrationStatus":"P" 
+  }) distinctBy $
+  
+  ]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<flow-ref doc:name="asset-mechanical-update-dbSub_Flow" doc:id="866b6ed2-4bac-4b2c-8a38-c7351f9ab8eb" name="asset-mechanical-update-dbSub_Flow" />
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="00e7bec1-5752-4741-970a-1a9265e36bbb" >
+				<json-logger:logger doc:name="Logger" doc:id="b9360967-2bc5-4169-ac01-e11784285bf4" config-ref="JSON_Logger_Config" message="Error occured in Batch aggregator">
+					<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    error:error.description
+}]]]></json-logger:content>
+				</json-logger:logger>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	<sub-flow name="asset-mechanical-update-dbSub_Flow" doc:id="51796d02-55a5-488e-83dc-b83bbe1090e4" >
+		<db:bulk-update doc:name="Bulk update" doc:id="afe58f6c-edee-435f-add5-d71ec574a181" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>${mechanical.database.update}</db:sql>
+		</db:bulk-update>
+	</sub-flow>
+	<flow name="asset-mechanical-retrieve-results-SFFlow" doc:id="7b97a5ab-11d3-4a2a-870d-3a603fbb5a37" >
+		<http:listener doc:name="Listener" doc:id="f6114589-7883-49dc-80b3-743608f8b58a" config-ref="HTTP_Listener_config" path="/batch/asset/mechanical/updateDB"/>
+		<db:select doc:name="Select" doc:id="8e5397cc-b8f6-43ad-8e92-9a237f463d32" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql >select distinct RFBatchId from TAS_SF_Asset_Staging  where APIType = 'Mechanical' and RFBatchId != '' and IntegrationStatus = 'P'</db:sql>
+		</db:select>
+		<batch:job jobName="asset-mechanical-sync-v2Batch_Job" doc:id="21de73d4-50e7-4f20-b295-f471f796b5d6" >
+			<batch:process-records >
+				<batch:step name="Batch_Step1" doc:id="60442fb9-52ca-4e3e-8139-6642f342e584" >
+					<try doc:name="Try" doc:id="7e0d437f-98db-4e1c-9ce4-fcd17149c115" >
+						<salesforce:retrieve-record-failure-bulk-v2 doc:name="Retrieve record failure bulk v 2" doc:id="28e57d3a-fcfd-42bf-8d4e-e91d4d3ec42d" config-ref="Shared_Salesforce_Config" id="#[payload.RFBatchId]" target="FailureIds" />
+						<error-handler >
+							<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="3b702fe0-d268-45b4-b696-09c6815a2a7a" >
+								<set-variable value="#[[]]" doc:name="Set Variable" doc:id="84f68802-0ef5-4e92-86bf-73e7e58672b8" variableName="FailureIds"/>
+							</on-error-continue>
+						</error-handler>
+					</try>
+					<json-logger:logger doc:name="Logger" doc:id="060b04de-46a0-4aa5-ae29-9be7ff6f32f3" config-ref="JSON_Logger_Config" message="#['Request to retrieve RfRecordId\'s from SF:' ++ payload.RFBatchId]" tracePoint="BEFORE_REQUEST">
+				<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+			</json-logger:logger>
+					<salesforce:retrieve-record-success-bulk-v2 doc:name="Retrieve record success bulk v 2" doc:id="01fe0a44-1910-49a6-bac2-7978127016af" config-ref="Shared_Salesforce_Config" id="#[payload.RFBatchId]"/>
+					<salesforce:retrieve doc:name="Retrieve" doc:id="260652cc-238c-4bed-bb44-ac8062ed94c0" config-ref="Shared_Salesforce_Config" type="MechanicalData__c">
+						<salesforce:retrieve-request ><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+    "Ids":payload.id,
+    Fields:["TAS_Asset_ID__c"]
+}]]]></salesforce:retrieve-request>
+					</salesforce:retrieve>
+					<json-logger:logger doc:name="Logger" doc:id="90de575f-24e7-40e0-a725-0d1df4837ac3" config-ref="JSON_Logger_Config" message="#['Retrieved RfRecordId\'s from SF']" tracePoint="AFTER_REQUEST">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+					<try doc:name="Try" doc:id="97de4dd7-b32d-455a-8cee-301868f28a2e" >
+						<ee:transform doc:name="Transform Message" doc:id="b4a8a903-fba6-47eb-a49b-5d114c027ac9">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+
+vars.orgReq map (firstInputValue) -> using (id = firstInputValue.ID)
+  {    
+    "tasId" : id,  
+  ( payload filter ($.*TAS_Asset_ID__c contains id)  map (secondInputValue) -> {
+       
+	"comments":'Upserted Salesforce Successfully',
+	"IntegrationStatus":"S", 
+     recordId:  secondInputValue.Id
+    }),
+      ( vars.FailureIds filter ($.errorMessage contains id)  map (secondInputValue) -> {
+       
+	"comments":secondInputValue.errorMessage,
+	"IntegrationStatus":"R"
+    })  
+    
+  }]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+						<ee:transform doc:name="Transform Message" doc:id="f2acdd58-6e54-4826-b34c-97f6fe0d0c2a">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+(payload map{
+"tasId":$.tasId,
+"recordId": $.recordId default "",
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":$.comments default 'Upsert failed in Salesforce',
+"IntegrationStatus":$.IntegrationStatus default "R" 
+} )]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+						<json-logger:logger doc:name="Logger" doc:id="c318dbfe-794c-48b9-b492-607882b61004" config-ref="JSON_Logger_Config" message="Transform completed for database update">
+							<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+						</json-logger:logger>
+						<error-handler >
+							<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="122c2fe1-7126-4a41-88a0-3c94136177bd" >
+								<json-logger:logger doc:name="Logger" doc:id="2a70332d-26af-44fc-b514-bd24b070189b" config-ref="JSON_Logger_Config" message="Error transforming ">
+									<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    error: error.description 
+}]]]></json-logger:content>
+								</json-logger:logger>
+							</on-error-propagate>
+						</error-handler>
+					</try>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="04d2073c-b4a4-418e-b030-38532034a7cb" size="50000">
+						<json-logger:logger doc:name="Logger" doc:id="df6bf530-e283-48c2-911b-280175d46f06" config-ref="JSON_Logger_Config" message="#['Request to final Database update']" >
+							<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+						</json-logger:logger>
+						<ee:transform doc:name="Transform Message" doc:id="33f29c08-04d1-4eab-bc41-687078dce903" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload)]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<db:bulk-update doc:name="Bulk update" doc:id="8f67113d-7246-4c2d-936d-db8cff639024" config-ref="Shared_TasSupport_Database_Config">
+							<db:sql >UPDATE TAS_SF_Asset_Staging SET IntegrationStatus = :IntegrationStatus, RFRecordId= :recordId, LastUpdatedDate = :lastUpdatedDate, IntegrationDate = :integrationDate, LastUpdatedBy = :lastUpdatedBy, Comments = :comments WHERE TASAssetId = :tasId and APIType = 'Mechanical'</db:sql>
+						</db:bulk-update>
+						<json-logger:logger doc:name="Logger" doc:id="b8643c64-6b4c-47e6-98b7-2417cde2083e" config-ref="JSON_Logger_Config" message="#['Final database update completed']" >
+							<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+						</json-logger:logger>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<os:remove doc:name="Remove" doc:id="eac624d3-7924-47c2-b683-83498f912d35" key="orgReqList" objectStore="SFBulkJob"/>
+				<json-logger:logger doc:name="Logger" doc:id="da11e1c3-3abc-4d4f-8239-de76a3974929" config-ref="JSON_Logger_Config" message="Mechanical Data Sync job completed" tracePoint="END">
+					<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+				</json-logger:logger>
+			
+</batch:on-complete>
+		</batch:job>
+	</flow>
+	<flow name="asset-mechanical-sync-v2Flow" doc:id="12bac866-cc5c-41b7-9279-301a43d240db" >
+		<db:select doc:name="Select" doc:id="d3fd4b82-eba5-4e2f-a7a4-925e3c04ca8d" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql >select distinct TASAssetID,CreatedDate from TAS_Support.dbo.TAS_SF_Asset_Staging  
+where APIType = 'Mechanical' and IntegrationStatus = 'R' and CreatedDate &lt;  DATEADD(day, -10, GETDATE())
+</db:sql>
+		</db:select>
+		<choice doc:name="Choice" doc:id="015215ea-9429-4694-8486-17279a760737" >
+			<when expression="#[sizeOf(payload default []) &gt; 0]" >
+				<ee:transform doc:name="Transform Message" doc:id="045ee9cd-6691-45a9-ab80-5527c986f561">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+(payload map{
+"tasId":$.TASAssetId,
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":"Updated Status to F from R",
+"IntegrationStatus": "F" 
+} )]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+				<db:bulk-update doc:name="Bulk update" doc:id="968e2e63-9340-4c2f-ab38-821906734aa4" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>UPDATE TAS_SF_Asset_Staging SET IntegrationStatus = :IntegrationStatus, LastUpdatedDate = :lastUpdatedDate, IntegrationDate = :integrationDate, LastUpdatedBy = :lastUpdatedBy, Comments = :comments WHERE TASAssetId = :tasId and APIType = 'Mechanical'</db:sql>
+		</db:bulk-update>
+			</when>
+			<otherwise >
+				<json-logger:logger doc:name="" doc:id="29a19f32-a870-4062-8310-b56cf9a3d466" config-ref="JSON_Logger_Config" message="No records retrieved from DB with status 'R' and created date older than 10days" tracePoint="BEFORE_REQUEST" >
+					<json-logger:content ><![CDATA[#[import modules::JSONLoggerModule output application/json ---
+{
+    payload: ""
+}]]]></json-logger:content>
+				</json-logger:logger>
+			</otherwise>
+		</choice>
+	
+</flow>
+<!-- 	<flow name="asset-mechanical-retrieve-results-SFFlow" doc:id="e1778170-fd37-4579-a8c8-3f8c29d539c6" >
+		<foreach doc:name="For Each" doc:id="270fad6b-1dc9-4cdf-85e7-d701e3fd58d5" >
+			<try doc:name="Try" doc:id="95b4067f-4404-423d-b0a5-52780c1f91dc" >
+				<salesforce:retrieve-record-success-bulk-v2 doc:name="Retrieve record success bulk v 2" doc:id="2346e859-c041-431a-b866-dd7016ca673c" config-ref="Shared_Salesforce_Config" id="#[payload]" />
+				<error-handler >
+					<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="92c210b1-e53f-4295-a387-e069d2aa7702" >
+						<json-logger:logger doc:name="" doc:id="93a0d4b3-c609-4448-b669-9b9015bf6df6" config-ref="JSON_Logger_Config" message="#['Upsert failed to SF']" >
+							<json-logger:content ><![CDATA[#[output application/json 
+-&#45;&#45;
+{
+    error: error.description
+}]]]></json-logger:content>
+						</json-logger:logger>
+						<ee:transform doc:name="Transform Message" doc:id="fe6d2fd4-ede4-46ca-8b6a-3b1d744be893" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+-&#45;&#45;
+using(integrationDate = now() as LocalDateTime)
+vars.orgReq map (payload01,indexOfPayload01 ) -> {
+
+"ID": payload01.ID,
+"MuleBatchId":vars.batchJobInstanceId,
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":'Salesforce Bulk job failed',
+"IntegrationStatus":"R" 
+
+  }]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<flow-ref doc:name="asset-mechanical-update-dbSub_Flow" doc:id="4b471195-32f2-40ce-92b0-bdd7fb114c89" name="asset-mechanical-update-dbSub_Flow" />
+					</on-error-propagate>
+				</error-handler>
+			</try>
+			<salesforce:retrieve doc:name="Retrieve" doc:id="9425e7d4-efce-4f37-9c31-1915c6fac1b0" config-ref="Shared_Salesforce_Config" type="MechanicalData__c">
+			<salesforce:retrieve-request><![CDATA[#[%dw 2.0
+output application/java
+-&#45;&#45;
+{
+    "Ids":payload.id,
+    Fields:["TAS_Asset_ID__c"]
+}]]]></salesforce:retrieve-request>
+		</salesforce:retrieve>
+			<ee:transform doc:name="Transform Message" doc:id="98d596e6-94db-485c-a714-f361914d882b">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+-&#45;&#45;
+
+vars.orgReq map (firstInputValue) -> using (id = firstInputValue.ID)
+  {    
+    "tasId" : id,  
+  ( payload filter ($.*TAS_Asset_ID__c contains id)  map (secondInputValue) -> {
+       
+	"comments":'Upserted Salesforce Successfully',
+	"IntegrationStatus":"S", 
+     recordId:  secondInputValue.Id
+    }) 
+    
+  }]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+			<ee:transform doc:name="Transform Message" doc:id="b3de0b68-9bbb-4677-9fa6-ffa10e547b69">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+-&#45;&#45;
+using(integrationDate = now() as LocalDateTime)
+(payload map{
+"tasId":$.tasId,
+"recordId": $.recordId default "",
+"lastUpdatedBy": 'tas-sf-asset-sync-job',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":$.comments default 'Upsert failed in Salesforce',
+"IntegrationStatus":$.IntegrationStatus default "F" 
+} )]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+			<db:bulk-update doc:name="Bulk update" doc:id="bf34ef91-75a8-4762-bd03-ad5ca466d818" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql>UPDATE TAS_SF_Asset_Staging SET IntegrationStatus = :IntegrationStatus, RFRecordId= :recordId, LastUpdatedDate = :lastUpdatedDate, IntegrationDate = :integrationDate, LastUpdatedBy = :lastUpdatedBy, Comments = :comments WHERE TASAssetId = :tasId and APIType = 'Mechanical'</db:sql>
+		</db:bulk-update>
+			<json-logger:logger doc:name="Logger" doc:id="a17cfff6-6daa-4d4d-aec7-7e1fad8c658b" config-ref="JSON_Logger_Config" message="Updated RfRecordId's in Staging Database" tracePoint="END">
+			<json-logger:content><![CDATA[#[import modules::JSONLoggerModule output application/json -&#45;&#45;
+{
+    payload: ""
+}]]]></json-logger:content>
+		</json-logger:logger>
+		</foreach>
+		<os:remove doc:name="Remove" doc:id="4fc4c2a7-e215-4053-8e5a-ed81adf7bfdf" key="orgReq" objectStore="SFBulkJob"/>
+		<os:remove doc:name="Remove" doc:id="7b94b92b-be9f-40c0-8dea-09bee97fe433" key="SFjobIds" objectStore="SFBulkJob"/>
+		<ee:transform doc:name="Transform Message" doc:id="4d768b86-9638-41e2-b5eb-1eb0427fefd8" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+-&#45;&#45;
+
+((payload groupBy $.tasId) pluck $) map {
+
+'tasId': $[0].tasId,
+'comments':$.id joinBy ";"
+
+} ]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	
+	
+</flow>
+	 -->
+</mule>
