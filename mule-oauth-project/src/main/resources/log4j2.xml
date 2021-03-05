@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration>
+
+    <!--These are some of the loggers you can enable. 
+        There are several more you can find in the documentation. 
+        Besides this log4j configuration, you can also use Java VM environment variables
+        to enable other logs like network (-Djavax.net.debug=ssl or all) and 
+        Garbage Collector (-XX:+PrintGC). These will be append to the console, so you will 
+        see them in the mule_ee.log file. -->
+
+    <Properties>
+    	<Property name="appName">mule-oauth-project</Property>
+        <Property name="logDir">\\pintwebappfs.prod.ted.loc\${sys:mule.logEnvFolderMap}\Logs\Mulesoft\Replication</Property>
+	</Properties>
+
+	<Appenders>
+	  <RollingFile name="file" fileName="${logDir}/${appName}/${sys:mule.env}-${appName}-${hostName}.log"
+	        filePattern="${logDir}/${appName}/${sys:mule.env}-${appName}-${hostName}-%d{yyyy-MM-dd-HH}-%i.log">
+	    <PatternLayout pattern="%d %p %c{1.} [%t] %m%n" />
+	    <Policies>
+	      <TimeBasedTriggeringPolicy />
+	      <SizeBasedTriggeringPolicy size="10 MB"/>
+	    </Policies>
+	    <DefaultRolloverStrategy max="100">
+	      <!--
+	      Nested conditions: the inner condition is only evaluated on files
+	      for which the outer conditions are true.
+	      -->
+	      <Delete basePath="${logDir}" maxDepth="2">
+	        <IfFileName glob="*/${sys:mule.env}-${appName}-${hostName}-*.log">
+	          <IfLastModified age="30d">
+	            <IfAny>
+	              <IfAccumulatedFileSize exceeds="1 GB" />
+	              <IfAccumulatedFileCount exceeds="10" />
+	            </IfAny>
+	          </IfLastModified>
+	        </IfFileName>
+	      </Delete>
+	    </DefaultRolloverStrategy>
+	  </RollingFile>
+	</Appenders>
+    <Loggers>
+        
+        <!-- Http Logger shows wire traffic on DEBUG. -->
+        <!--AsyncLogger name="org.mule.service.http.impl.service.HttpMessageLogger" level="DEBUG" /-->
+        <AsyncLogger name="org.mule.service.http" level="WARN"/>
+        <AsyncLogger name="org.mule.extension.http" level="WARN"/>
+    
+		<!-- Mule logger -->        
+        <AsyncLogger name="org.mule.runtime.core.internal.processor.LoggerMessageProcessor" level="INFO"/>
+ 
+        <AsyncRoot level="INFO">
+            <AppenderRef ref="file" />
+        </AsyncRoot>
+    </Loggers>
+</Configuration>
