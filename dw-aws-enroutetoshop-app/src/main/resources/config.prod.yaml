@@ -1,0 +1,9 @@
+cronExpression:
+  cdc:  " 0 0 0/1 ? * * *"
+  sync: "0 15 0/1 ? * * *"
+  
+  
+aws:
+  url: "jdbc:postgresql://aa1k520oi0gd4zf.chfiewajps5e.us-east-1.rds.amazonaws.com:5432/iot_tel"
+  user: "grayboxadmin"
+  password: "K1whYAyharWNsC2nOGQR"
