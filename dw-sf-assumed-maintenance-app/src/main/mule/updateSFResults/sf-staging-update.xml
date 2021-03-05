@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	
+	
+		<flow name="Update-SF-resultsFlow" doc:id="332d376b-fddd-43f6-8e69-00f5e02dbbde" >
+		<http:listener doc:name="Listener" doc:id="a996851a-92d5-4829-97c8-4a2df49007aa" config-ref="HTTP_Listener_config" path="/batch/irr/assumedmaintenance/updateResults"/>
+		<logger level="INFO" doc:name="Logger" doc:id="e4e6b3f4-7785-4f52-afbe-ab41368ab368" message="#[%dw 2.0
+import * from dw::Runtime
+output application/json ---
+{
+    payload: (payload) wait 30000
+
+}]"/>
+		<db:select doc:name="Select" doc:id="f0dd779b-0931-44b4-ac9c-11db1cb33ab3" config-ref="Shared_TasSupport_Database_Config">
+			<reconnect />
+			<db:sql >select distinct RFBatchId from 
+tas_support.dbo.DW_SF_assumed_maintenance_Staging  where RFBatchId != '' and IntegrationStatus = 'P'</db:sql>
+		</db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="1ec0e873-1eb2-4396-9259-d2e61175fc69" message="#['Retrieved RFBatchId\'s from staging table (tas_support.dbo.DW_SF_assumed_maintenance_Staging) count: ' ++ (sizeOf(payload) default &quot;&quot;)]"/>
+		<foreach doc:name="For Each" doc:id="38fb94cf-e95f-4116-8802-842eea8e35e9" >
+			<try doc:name="Try" doc:id="9e6f4292-0549-4976-b6eb-92913a7e6928" >
+				<logger level="INFO" doc:name="Logger" doc:id="c8dae3b6-8efe-482e-90a3-a0a39236bcf1" message="#['Entered for each flow:: RFBatchId:' ++ (payload.RFBatchId default &quot;&quot;) ++ ':: Counter: ' ++ (vars.counter default &quot;&quot;)]" />
+				<set-variable value="#[payload.RFBatchId]" doc:name="Set Variable" doc:id="66d0ab2f-501b-4870-ab31-b903a4fabe1c" variableName="BatchId" />
+				<salesforce:retrieve-job-failed-results-bulk-v2 doc:name="Retrieve job failed results bulk v 2" doc:id="0f3bf0f8-da2e-4118-a15a-0e2f52d24d74" config-ref="Shared_Salesforce_Config" id="#[vars.BatchId]" >
+					<reconnect />
+				</salesforce:retrieve-job-failed-results-bulk-v2>
+				<db:bulk-update doc:name="Bulk update" doc:id="a8eb5694-6611-427b-b91a-9eb1dca6a978" config-ref="Shared_TasSupport_Database_Config">
+			<db:bulk-input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+flatten(payload) map {
+DataLoadId:$.originalFields.Data_Load_Id__c,
+SFID:vars.BatchId,
+IntegrationStatus:"F",
+Comments:$.errorMessage,
+IntegrationDate:integrationDate,
+LastUpdatedDate: integrationDate
+ }]]]></db:bulk-input-parameters>
+			<db:sql>UPDATE 
+tas_support.dbo.DW_SF_assumed_maintenance_Staging set  
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate,
+IntegrationDate=:IntegrationDate
+WHERE DataLoadId = :DataLoadId and RFBatchId = :SFID</db:sql>
+		</db:bulk-update>
+				<salesforce:retrieve-job-successful-results-bulk-v2 doc:name="Retrieve job successful results bulk v 2" doc:id="0dd8a5b6-b0dd-496e-bd00-10a2032823bd" config-ref="Shared_Salesforce_Config" id="#[vars.BatchId]" >
+					<reconnect />
+				</salesforce:retrieve-job-successful-results-bulk-v2>
+				<db:bulk-update doc:name="Bulk update" doc:id="ce62823d-dca5-474f-97e0-634d3cd2ba4f" config-ref="Shared_TasSupport_Database_Config">
+				<reconnect />
+					<db:bulk-input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+flatten(payload) map {
+DataLoadId:$.originalFields.Data_Load_Id__c,
+SFID:vars.BatchId,
+IntegrationStatus:"S",
+Comments:$.errorMessage,
+RFRecordId:$.id,
+IntegrationDate:integrationDate,
+LastUpdatedDate: integrationDate
+ }]]]></db:bulk-input-parameters>
+				<db:sql>UPDATE 
+tas_support.dbo.DW_SF_assumed_maintenance_Staging set  
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+RFRecordId=:RFRecordId,
+LastUpdatedDate=:LastUpdatedDate,
+IntegrationDate=:IntegrationDate
+WHERE DataLoadId = :DataLoadId  and RFBatchId = :SFID</db:sql>
+			</db:bulk-update>
+				<error-handler >
+					<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="9b6fb438-97e9-4441-9b5c-c513adfea504" >
+						<logger level="INFO" doc:name="Logger" doc:id="585b0d50-e568-4953-8b8b-eeff0f0e6cd2" message="#[error.description]"/>
+					</on-error-propagate>
+				</error-handler>
+			</try>
+		
+</foreach>
+		<logger level="INFO" doc:name="Logger" doc:id="76cd233d-567b-4c65-b74b-4b6a452963a3" message="#['Update results flow complete']"/>
+	</flow>
+	</mule>

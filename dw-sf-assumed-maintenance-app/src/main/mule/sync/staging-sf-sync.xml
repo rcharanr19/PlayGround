@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	
+	<flow name="sync-dw-sf-assumed-maintenance-appFlow" doc:id="bfc39444-b2b1-4193-a880-8efbc112beeb" >
+		<scheduler doc:name="Scheduler" doc:id="a98eb9a3-8f43-4cc9-a6a0-ea21612e4c91" >
+			<scheduling-strategy >
+				<cron expression="${cronExpression.sync}"/>
+			</scheduling-strategy>
+		</scheduler>
+		<db:select doc:name="Select" doc:id="45c841a3-5286-414d-9461-67b274bf7fd2" config-ref="Shared_TasSupport_Database_Config">
+			<reconnect />
+			<db:sql >select distinct DataLoadId from TAS_Support.dbo.DW_SF_assumed_maintenance_Staging where 
+IntegrationStatus not in ('S','P','F')
+</db:sql>
+		</db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="45a7a7bd-33cf-494f-9759-403377120389" message="#['Number of records retrieved from staging table (tas_support.dbo.DW_SF_betterment_value_Staging): ' ++ (sizeOf(payload) default &quot;&quot;)]"/>
+		<ee:transform doc:name="Transform Message" doc:id="a7c2e8b8-1042-4e91-9b9e-32a9a96cad48" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload map {
+
+modelId:  ($.DataLoadId splitBy "-")[0] as Number,
+leasetypeId: ($.DataLoadId splitBy "-")[1] as Number
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="sync-dw-sf-assumed-maintenance-appBatchFlow" doc:id="d6425252-6f0c-433f-9e1b-79003f8deebf" name="sync-dw-sf-assumed-maintenance-appBatchFlow"/>
+	</flow>
+	<flow name="sync-dw-sf-assumed-maintenance-appBatchFlow" doc:id="0320bc4f-4e1b-4de3-8150-55ed3aa2eece" >
+		<batch:job jobName="sync-dw-sf-assumed-maintenance-appBatch_Job" doc:id="6e7e1378-585e-4068-b428-d4e9fc61e5bb" maxFailedRecords="-1" blockSize="500" maxConcurrency="10">
+			<batch:process-records>
+				<batch:step name="Batch_Step1" doc:id="de361153-4c80-4d90-8915-0c5cd6b6885e">
+					<db:select doc:name="Select" doc:id="e65af976-945f-4e5c-a108-3c0cc170d91c" config-ref="Shared_RailForceSupport_Database_Config">
+			<reconnect />
+			<db:sql>	select ModelID, LeaseTypeID, LeaseType, Maintenance as MontlhyMaintenanceAmount
+from [TrinityBILoad].[MDM].[XIRRMaintenanceAssumptions]
+ where 
+ModelID =  :modelId and LeaseTypeID = :leasetypeId
+Order by ModelID, LeaseType</db:sql>
+						<db:input-parameters ><![CDATA[#[{"modelId":payload.modelId,
+	leasetypeId:payload.leasetypeId
+	
+}]]]></db:input-parameters>
+		
+</db:select>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="04f2f0a8-7de4-45c7-b207-dcacce7dd598" size="20000">
+						<ee:transform doc:name="Transform Message" doc:id="d4c5909a-4450-4595-a3bc-7297bd1512b8">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/csv
+---
+flatten(payload)]]></ee:set-payload>
+							</ee:message>
+							<ee:variables>
+								<ee:set-variable variableName="orgReq"><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload)]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+						<try doc:name="Try" doc:id="fc42ef86-d788-4e59-92de-0a62b2453fc9">
+							<logger level="INFO" doc:name="Logger" doc:id="167780e0-b22e-4b5c-a42d-9576251ab424" message="#['Upserting to SF object (Residual_Betterment__c): ' ++ (sizeOf(payload) default &quot;&quot;)]" />
+							<salesforce:create-job-bulk-api-v2 operation="upsert" doc:name="Create job bulk api v 2" doc:id="23bc7587-2c9e-4bf0-99b8-a66d36760314" lineEnding="CRLF" objectType="Assumed_Maintenance__c" externalIdFieldName="Data_Load_Id__c" target="SFId" targetValue="#[payload.id]" config-ref="Shared_Salesforce_Config">
+								<reconnect />
+							</salesforce:create-job-bulk-api-v2>
+							<error-handler>
+								<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="1bc47c94-5e4a-46ce-9770-57fb29edeb9e">
+									<logger level="INFO" doc:name="Logger" doc:id="4f8607c2-3d14-45c2-bfd0-2164e799b292" message="#[error.description]"/>
+									<db:bulk-update doc:name="Bulk update" doc:id="496980fe-6c42-41e5-97ad-042f5061adb2" config-ref="Shared_TasSupport_Database_Config">
+										<db:bulk-input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+flatten(payload) map {
+DataLoadId:$.Data_Load_Id__c,
+IntegrationStatus:"F",
+Comments:"Failed to upsert to SF",
+IntegrationDate:integrationDate,
+LastUpdatedDate: integrationDate
+ }]]]></db:bulk-input-parameters>
+										<db:sql>UPDATE 
+tas_support.dbo.DW_SF_assumed_maintenance_Staging set  
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate,
+IntegrationDate=:IntegrationDate
+WHERE DataLoadId = :DataLoadId and IntegrationStatus not in ('S','F')</db:sql>
+									</db:bulk-update>
+								</on-error-propagate>
+							</error-handler>
+						</try>
+						<logger level="INFO" doc:name="Logger" doc:id="3024a11a-41e2-4e9b-819a-833e5cd6a6cf" message="#['updating Integrationstatus and RFBatchId to staging table (tas_support.dbo.DW_SF_betterment_value_Staging): ' ++ sizeOf(payload default 0)]" />
+						<db:bulk-update doc:name="Bulk update" doc:id="7b16aa4b-e6bb-4f8b-bcfc-6f7b65353e5e" config-ref="Shared_TasSupport_Database_Config">
+							<reconnect />
+							<db:bulk-input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+(vars.orgReq map (payload01,indexOfPayload01 ) -> {
+"DataLoadId": payload01.Data_Load_Id__c,
+"SFID": vars.SFId,
+"MuleBatchId":vars.batchJobInstanceId,
+"lastUpdatedBy": 'dw-sf-assumed-maintenance-app',
+"integrationDate": integrationDate,
+"lastUpdatedDate": integrationDate,
+"comments":'created bulk job in Salesforce',
+"IntegrationStatus":"P" 
+  })]]]></db:bulk-input-parameters>
+							<db:sql>${database.staging.bulkUpdate}</db:sql>
+						</db:bulk-update>
+					
+</batch:aggregator>
+					<ee:transform doc:name="Transform Message" doc:id="1da94e75-bbef-48de-87ee-50e08ce76c27">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload map {
+Model_Id__c:$.ModelID,
+Lease_Type_ID__c:$.LeaseTypeID,
+Data_Load_Id__c:$.ModelID ++ '-' ++ $.LeaseTypeID,
+Lease_Type__c :$.LeaseType,
+Monthly_Maintenance_Amount__c:$.MonthlyMaintenanceAmount
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete>
+				<logger level="INFO" doc:name="Logger" doc:id="c8707b39-ec3b-4b77-8f97-9e29f88eef57" message="#['on complete flow started']" />
+				<flow-ref doc:name="Update-SF-resultsFlow" doc:id="e30e6419-a62b-4a69-97e8-bc0e969d5afd" name="Update-SF-resultsFlow" />
+				<logger level="INFO" doc:name="Logger" doc:id="5868044d-20c8-46de-a5aa-67f2b5931a02" message="#['Betterment Job completed']" />
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+	
+	</mule>

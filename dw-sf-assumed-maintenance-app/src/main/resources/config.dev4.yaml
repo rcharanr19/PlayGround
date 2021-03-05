@@ -1,0 +1,13 @@
+cronExpression:
+  cdc:  "0 0 2 3 * ? *"
+  sync: "0 0 3 3 * ? *"
+
+database:
+  staging:
+    bulkInsert: "INSERT INTO tas_support.dbo.DW_SF_assumed_maintenance_Staging (DataLoadId, IntegrationStatus, Comments, CreatedBy, IntegrationDate, CreatedDate, LastUpdatedDate) VALUES (:DataLoadId, :IntegrationStatus, :Comments, :CreatedBy, :IntegrationDate, :CreatedDate, :lastUpdatedDate)" 
+    bulkUpdate: "UPDATE tas_support.dbo.DW_SF_assumed_maintenance_Staging set IntegrationStatus=:IntegrationStatus, RFBatchId=:SFID, MuleBatchId=:MuleBatchId, Comments=:comments, LastUpdatedDate=:lastUpdatedDate, IntegrationDate=:integrationDate WHERE DataLoadId = :DataLoadId and IntegrationStatus not in ('S','F')"
+
+  SourceQuery: >-
+    select ModelID, LeaseTypeID, LeaseType, Maintenance as MontlhyMaintenanceAmount
+    from [TrinityBILoad].[MDM].[XIRRMaintenanceAssumptions]
+    Order by ModelID, LeaseType

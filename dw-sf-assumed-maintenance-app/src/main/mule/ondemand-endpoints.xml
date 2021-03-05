@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<configuration-properties doc:name="Configuration properties" doc:id="2a916990-d0c1-487e-ba94-98d65770656b" file="config.${mule.env}.yaml" />
+	<global-property doc:name="Global Property" doc:id="e72762e6-ece3-4ae1-9b7f-bb3decd2dff8" name="mule.env" value="local" />
+	<flow name="onDemand-sync-tas-sf-residual-curve-appFlow" doc:id="95b92301-a586-48c5-81d3-dbfe0a150aa3" >
+		<http:listener doc:name="Listener" doc:id="3581bbf1-68db-41d9-869a-b267c16de2b5" config-ref="HTTP_Listener_config" path="/batch/irr/assumedmaintenance/sync"/>
+		<flow-ref doc:name="dw-sf-assumed-maintenance-appFlow" doc:id="593e0737-e5d6-4e99-becd-cdfe149fe96e" name="sync-dw-sf-assumed-maintenance-appFlow"/>
+	</flow>
+	<flow name="onDemand-cdc-tas-sf-residual-curve-appFlow" doc:id="41355d12-2173-468f-9d07-832095480499" >
+		<http:listener doc:name="Listener" doc:id="378a0bc1-5645-4377-aaeb-a4b4d2dc7264" config-ref="HTTP_Listener_config" path="/batch/irr/assumedmaintenance/cdc"/>
+		<flow-ref doc:name="cdc-dw-sf-assumed-maintenance-appFlow" doc:id="08c8316a-8bc3-460f-ad29-1cf2f0fdeeeb" name="cdc-dw-sf-assumed-maintenance-appFlow"/>
+	</flow>
+	
+	
+
+</mule>

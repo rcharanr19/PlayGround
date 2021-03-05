@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+	<flow name="cdc-dw-sf-assumed-maintenance-appFlow" doc:id="26053994-4e4e-43ce-9565-be5feb6c6980">
+		<scheduler doc:name="Scheduler" doc:id="2663930a-3c0f-4df3-a5d8-eb8e36620977">
+			<scheduling-strategy>
+				<cron expression="${cronExpression.cdc}" />
+			</scheduling-strategy>
+		</scheduler>
+		<logger level="INFO" doc:name="Logger" doc:id="281cfbe2-d045-419e-8c11-e816d600037a" message="#['Residual Curve Job started']" />
+		<db:select doc:name="Select" doc:id="36e78519-f489-439d-9da8-d449cd152074" config-ref="Shared_RailForceSupport_Database_Config">
+			<reconnect />
+			<db:sql>${database.SourceQuery}</db:sql>
+		</db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="4055bb7e-f2d9-4f6f-a0de-b42453ad1244" message="#['Number of records retrieved from cdc :' ++ (sizeOf(payload) default &quot;&quot;)]"/>
+		<flow-ref doc:name="cdc-dw-sf-assumed-maintenance-appBatchFlow" doc:id="df1281ff-d963-4189-aa77-cbf0c621c908" name="cdc-dw-sf-assumed-maintenance-appBatchFlow"/>
+	</flow>
+	<flow name="cdc-dw-sf-assumed-maintenance-appBatchFlow" doc:id="b747b8b9-aad9-4a0e-ab73-e64dc80589ca" >
+		<batch:job jobName="cdc-dw-sf-assumed-maintenance-appBatch_Job" doc:id="b202c83a-e506-4be8-82d9-1a1440abf4b3" maxFailedRecords="-1" maxConcurrency="10" blockSize="500">
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="7b2fe794-384a-41b4-9c24-d66331455f04">
+					<ee:transform doc:name="Transform Message" doc:id="4b0464ca-15f7-4da8-9976-a8a5e6630d13">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="069c426f-92c4-4dec-b2da-731f490155c2" size="50000">
+						<logger level="INFO" doc:name="Logger" doc:id="b2a75098-4c33-4e3d-a4fe-46be08d25408" message="#['Aggregated records:' ++ (sizeOf(payload) default &quot;&quot;)]"/>
+						<ee:transform doc:name="Transform Message" doc:id="4fddc229-6a06-45d2-bd3f-53c8c35327f5">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+flatten(payload) map {
+DataLoadId:$.ModelID default 0 ++'-'++$.LeaseTypeID default 0,
+IntegrationStatus:"I",
+CreatedBy:"dw-sf-assumed-maintenance-app",
+Comments:"Inserted from dw-sf-assumed-maintenance-app",
+CreatedDate:integrationDate,
+IntegrationDate:integrationDate ,
+lastUpdatedDate:integrationDate
+ }]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="fd1256f8-d0dc-4d41-929d-fb9ce9267331" message="#['Request to insert data into staging table (tas_support.dbo.DW_SF_betterment_value_Staging): '++ (sizeOf(payload) default &quot;&quot;)]" />
+						<db:bulk-insert doc:name="Bulk insert" doc:id="55995ae9-a948-493f-892b-8bd642ba3250" config-ref="Shared_TasSupport_Database_Config">
+							<reconnect />
+							<db:sql>${database.staging.bulkInsert}</db:sql>
+						</db:bulk-insert>
+						<logger level="INFO" doc:name="Logger" doc:id="d81e4c81-f787-462e-bd41-6c482916ba41" message="#['Data insert into staging table completed (tas_support.dbo.DW_SF_betterment_value_Staging)']"/>
+					
+</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Logger" doc:id="3e300f6e-89d8-4a25-8777-22fd2f04c6e2" message="#[payload]"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+	</mule>
