@@ -131,7 +131,7 @@ output application/json
                 <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-"Success"]]></ee:set-payload>
+"Success" ]]></ee:set-payload>
             </ee:message>
         </ee:transform>
 		<logger level="INFO" doc:name="Logger" doc:id="33668d84-c6d9-460c-b2ae-acef765b9f74" message="#[payload]"/>
