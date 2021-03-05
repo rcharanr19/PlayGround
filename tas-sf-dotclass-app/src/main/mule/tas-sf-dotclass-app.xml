@@ -1,0 +1,408 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:aggregators="http://www.mulesoft.org/schema/mule/aggregators"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:ftp="http://www.mulesoft.org/schema/mule/ftp" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ftp http://www.mulesoft.org/schema/mule/ftp/current/mule-ftp.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/aggregators http://www.mulesoft.org/schema/mule/aggregators/current/mule-aggregators.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd">
+	<file:config name="File_Config" doc:name="File Config" doc:id="7c76a8bb-1166-4638-9cf3-d471d9782b46" >
+	</file:config>
+	<!-- <salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="9fd6108e-4216-4837-b372-2a07c6c80664" >
+		<salesforce:cached-basic-connection username="ram.suram@trin.net.rfstage" password="Summer2020" securityToken="5u8QAL7DzMayyw4kFoj1hjPr" url="https://test.salesforce.com/services/Soap/u/45.0" />
+	</salesforce:sfdc-config>
+	<salesforce:sfdc-config name="Salesforce_Config1" doc:name="Salesforce Config" doc:id="b5732a4b-3724-499f-bdf3-868df5f053fe" >
+		<salesforce:cached-basic-connection username="ram.suram@trin.net.int4" password="wu+8Xefr!!" securityToken="qlj47X08vKOOq5FlViJ2hwsn" url="https://test.salesforce.com/services/Soap/u/45.0" />
+	</salesforce:sfdc-config> -->
+	<sftp:config name="SFTP_Config" doc:name="SFTP Config" doc:id="5afd7d59-f403-45ec-9f05-9526f2b1da57" >
+		<sftp:connection host="${sftp.hostname}" username="${sftp.username}" identityFile="${mule.home}/apps/${app.name}\imulesftp-Key.ppk" connectionTimeoutUnit="MINUTES" connectionTimeout="${sftp.connectionTimeout}" responseTimeout="120">
+			<reconnection >
+				<reconnect />
+			</reconnection>
+			<pooling-profile minEvictionMillis="60000" />
+			<sftp:preferred-authentication-methods >
+				<sftp:preferred-authentication-method value="PUBLIC_KEY" />
+			</sftp:preferred-authentication-methods>
+		</sftp:connection>
+
+	</sftp:config>
+	<configuration-properties doc:name="Configuration properties" doc:id="ff656cc3-ded0-4e0c-be6b-bb19c131f34e" file="config.${mule.env}.yaml" />
+	<flow name="tas-sf-dotclass-appFlow" doc:id="e730d434-d3bb-4d6d-a6ed-18ee7c1fb2c4" >
+		<!-- <file:listener doc:name="On New or Updated File" doc:id="27055230-5517-4407-abe5-80073dcbd68a" config-ref="File_Config" directory="C:\Users\suramr\Desktop\rapidresponse\8C files\8C files" outputMimeType="application/xlsx; ignoreemptyline=false; header=false" autoDelete="true">
+			<scheduling-strategy >
+				<fixed-frequency frequency="2" timeUnit="MINUTES" />
+			</scheduling-strategy>
+		</file:listener> -->
+		<sftp:listener doc:name="On New or Updated File" doc:id="264b4394-70a1-447b-81b8-2e53c14d6124" config-ref="SFTP_Config" timeBetweenSizeCheck="1" timeBetweenSizeCheckUnit="MINUTES" autoDelete="true" directory="${sftp.sourceDirectory}" outputMimeType="application/xlsx; ignoreemptyline=false; header=false" applyPostActionWhenFailed="false">
+			
+			<scheduling-strategy >
+				<cron expression="${cronExpression}"/>
+			</scheduling-strategy>
+		</sftp:listener>
+		<logger level="INFO" doc:name="Logger" doc:id="94fce0ff-dd00-407f-9742-f20d72d158c5" message="#['File retrieved successfully for file: ' ++ attributes.fileName]"/>
+		<file:write doc:name="Write" doc:id="faca6747-d920-4154-bb47-02a273a507e9" path="#['\\\\pintwebappfs.prod.ted.loc\\\\${mule.logEnvFolderMap}\\Logs\\Mulesoft\\UNcode\\app\\tas-sf-dotclass-app\\backup\\\'' ++ now() as String {format: &quot;yyyyMMdd'T'hhmms&quot;} ++ '_' ++ attributes.fileName]" mode="CREATE_NEW" config-ref="File_Config">
+			<file:content ><![CDATA[#[%dw 2.0
+output application/xlsx
+---
+payload]]]></file:content>
+		</file:write>
+		<logger level="INFO" doc:name="Logger" doc:id="d333851f-6169-43fb-9861-dd935809d5f0" message="#['File Backup successful for file: ' ++ attributes.fileName]"/>
+		<ee:transform doc:name="Transform Message" doc:id="367619be-cafe-4a51-9087-552938a259ab">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+input payload application/xlsx
+---
+{
+	
+"Bulk Packing":(payload.Sheet1[0] pluck $)[0] match {
+	case word matches /\d+\d+\d+\.(\d+\d+)(.*)/ ->  word[1]
+	else -> $
+},
+"Reg Title":(payload.Sheet1[1] pluck $)[0],
+"Regulations":(payload.Sheet1[2] pluck $)[0],
+"Publisher Notes":(payload.Sheet1[3] pluck $)[0],
+ DOTClass:(payload.Sheet1 filter $$ > 3) map {
+    dotClass:$[0],
+    Notes:$[1]
+}
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="DotClass"><![CDATA[%dw 2.0
+output application/json
+input payload application/xlsx header = false
+---
+(payload.Sheet1 filter $$ > 3) map {
+    dotClass:$[0],
+    Notes:$[1]
+}]]></ee:set-variable>
+				<ee:set-variable variableName="dotFile"><![CDATA[/* %dw 2.0
+output application/csv
+---
+payload.Sheet1 map $ */
+
+%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+{
+RelatedTableName:"TAS_SF_DotClass_Staging",  
+FileName:attributes.fileName,
+SourceLocation:"tas", 
+TargetLocation:"RailForce", 
+FileMoveStatus:"S",
+Comments:"Success",
+CreatedDate:integrationDate,
+IntegrationDate:integrationDate,
+CreatedBy:"tas-sf-dotclass-app",
+LastUpdatedBy:"tas-sf-dotclass-app", 
+LastUpdatedDate:integrationDate
+ }]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<db:insert doc:name="Insert" doc:id="1aa428e4-7d8d-4ddb-a5b2-f22f645c758f" target="db" config-ref="Shared_TasSupport_Database_Config">
+			<db:sql >INSERT INTO tas_support.dbo.Mule_FileStatus_Staging 
+(RelatedTableName,  
+FileName,
+SourceLocation, 
+TargetLocation, 
+FileMoveStatus,
+Comments,
+CreatedDate,
+IntegrationDate,
+CreatedBy,
+LastUpdatedBy, 
+LastUpdatedDate)
+VALUES (:RelatedTableName,  
+:FileName,
+:SourceLocation, 
+:TargetLocation, 
+:FileMoveStatus,
+:Comments,
+:CreatedDate,
+:IntegrationDate,
+:CreatedBy,
+:LastUpdatedBy, 
+:LastUpdatedDate)</db:sql>
+			<db:input-parameters ><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+{
+RelatedTableName:"TAS_SF_DOTClass_Staging",  
+FileName:attributes.fileName,
+SourceLocation:"tas", 
+TargetLocation:"RailForce", 
+FileMoveStatus:"S",
+Comments:"Success",
+CreatedDate:integrationDate,
+IntegrationDate:integrationDate,
+CreatedBy:"tas-sf-dotclass-app",
+LastUpdatedBy:"tas-sf-dotclass-app", 
+LastUpdatedDate:integrationDate
+ }]]]></db:input-parameters>
+		</db:insert>
+		<logger level="INFO" doc:name="Logger" doc:id="298e29b1-6e3c-4c5a-8d61-9db74ad9715a" message="#['Updated MuleFileStatus table for file: ' ++ attributes.fileName]"/>
+		<aggregators:size-based-aggregator doc:name="Size based aggregator" doc:id="db909d9e-5ddd-4901-bab6-3df3cb2e4b44" name="aggregator" maxSize="100" timeout="1" timeoutUnit="MINUTES">
+			<aggregators:aggregation-complete >
+				<flow-ref doc:name="Flow Reference" doc:id="6e7681c5-b1bc-4651-8078-a0cfcc557497" name="tas-sf-dotclass-appFlow1"/>
+			</aggregators:aggregation-complete>
+		</aggregators:size-based-aggregator>
+	<!-- 	<logger level="INFO" doc:name="Logger" doc:id="82b98c47-15e0-4342-a228-ddafd2ab6a42" message="sftp "/>
+		<batch:job jobName="tas-sf-dotclass-appBatch_Job" doc:id="9bc2a336-1c50-4daf-9e1c-552124ed24d3" >
+			<batch:process-records >
+				<batch:step name="BulkPacking_Step" doc:id="1755e8c7-eb51-4dec-9e26-b45633ae745c" >
+					<ee:transform doc:name="Transform Message" doc:id="16285bc0-4513-4f85-bbc1-cf58f14bf08d" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/json 
+input payload application/csv header = false
+-&#45;&#45;
+{
+"Bulk Packing":(payload[0] pluck $)[0] match {
+	case word matches /\d+\d+\d+\.(\d+\d+\d+)(.*)/ ->  word[1]
+	else -> $
+},
+"Reg Title":(payload[1] pluck $)[0],
+"Regulations":(payload[2] pluck $)[0],
+"Publisher Notes":(payload[3] pluck $)[0]
+}
+
+		
+]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<logger level="INFO" doc:name="Logger" doc:id="0997c515-6bdd-426d-a4a3-a89d46478006" message="#[payload]"/>
+				</batch:step>
+				<batch:step name="DotClass_Step" doc:id="54354f94-8493-49b6-b1a7-80a6840bf34d" >
+					<ee:transform doc:name="Transform Message" doc:id="996ea542-254c-44fc-90c9-2cff6d0d510f" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+input payload application/csv header = false
+-&#45;&#45;
+(payload filter $$ > 3) map  {
+    dotClass:$[0],
+    Notes:$[1]
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</batch:step>
+			</batch:process-records>
+		</batch:job> -->
+	</flow>
+	<flow name="tas-sf-dotclass-appFlow2" doc:id="083bdcab-674a-4233-81d3-4c22139c1725" >
+		<aggregators:aggregator-listener doc:name="Aggregator listener" doc:id="879725b8-f433-4f6c-89b9-a45c39c5cb83" aggregatorName="aggregator" includeTimedOutGroups="true" />
+		<flow-ref doc:name="Flow Reference" doc:id="d01f6623-1688-4e1d-b1cd-5dd30283a091" name="tas-sf-dotclass-appFlow1"/>
+	</flow>
+	<flow name="tas-sf-dotclass-appFlow1" doc:id="bcc7d1c9-8868-4b7d-b6c2-041a70873a29" >
+		<ee:transform doc:name="Transform Message" doc:id="089d9330-0901-4374-aa60-a214d9a6e4b1" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="de8261fe-82a8-4b2b-84c8-bf4140d62847" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+flatten(payload map 
+    ($.DOTClass map (payload01,ii) -> { 
+Bulk_Packing__c:$."Bulk Packing",
+DOT_Class__c:payload01.dotClass,
+//Hazardous_Material__c:"",
+//Name:"",
+Data_Load_Id__c: payload01.dotClass ++ '-' ++ $."Bulk Packing",
+Notes__c:payload01.Notes
+}))
+]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="DotClass" ><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload map 
+    ($.DOTClass map (payload01,ii) -> { 
+"Bulk_Packing__r":{
+	"type":"Bulk_Packing__c",
+	Bulk_Packing__c:$."Bulk Packing"
+    },
+
+DOT_Class__c:payload01.dotClass,
+Data_Load_Id__c: payload01.dotClass ++ '-' ++ $."Bulk Packing",
+//Name:$."Bulk Packing" default ""++ payload01.dotClass default "",
+Notes__c:payload01.Notes
+}))
+]]></ee:set-variable>
+				<ee:set-variable variableName="BulkPacking" ><![CDATA[%dw 2.0
+output application/java
+---
+flatten(payload map {
+Bulk_Packing__c:$."Bulk Packing",
+//DOT_Class__c:$.bulk.dotClass,
+//Name:$."Reg Title",
+Publisher_Notes__c:$."Publisher Notes",
+Reg_Title__c:$."Reg Title",
+Regulation__c:$."Regulations"
+})
+]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="928f260d-9512-4a42-ba22-90243933f88a" message="#['Request to bulk insert data into Database table tas_sf_bulkpacking_staging']"/>
+		<db:bulk-insert doc:name="Bulk insert" doc:id="8471ddfd-7f77-4ae2-8b5c-a40eb2b7420f" config-ref="Shared_TasSupport_Database_Config">
+			<db:bulk-input-parameters ><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+vars.BulkPacking map{
+BulkPacking:$.Bulk_Packing__c,
+FileName:attributes.fileName,
+Action:"I",
+IntegrationStatus:"I",
+Comments:"updating SF",
+CreatedBy:"tas-sf-dotclass-app",
+CreatedDate:integrationDate,
+IntegrationDate:integrationDate,
+LastUpdatedBy:"tas-sf-dotclass-app",
+LastUpdatedDate:integrationDate
+ }]]]></db:bulk-input-parameters>
+			<db:sql >INSERT INTO tas_support.dbo.TAS_SF_BulkPacking_Staging
+(BulkPacking,
+FileName,
+Action,
+IntegrationStatus,
+Comments,
+CreatedBy,
+CreatedDate,
+IntegrationDate,
+LastUpdatedBy,
+LastUpdatedDate
+)
+VALUES (:BulkPacking,  
+:FileName,
+:Action, 
+:IntegrationStatus,
+:Comments,
+:CreatedBy,
+:CreatedDate,
+:IntegrationDate,
+:LastUpdatedBy, 
+:LastUpdatedDate)</db:sql>
+		</db:bulk-insert>
+		<logger level="INFO" doc:name="Logger" doc:id="3d431311-e756-4ead-b3f4-1ddac385787a" message="#['Finished bulk insert into Database table tas_sf_bulkpacking_staging']"/>
+		<logger level="INFO" doc:name="Logger" doc:id="9efda09a-a6f0-45e5-a0f8-c71806b4a505" message="#['Request to upsert data to SF object Bulk_Packing__c']"/>
+		<salesforce:upsert doc:name="Upsert" doc:id="7d354ba5-4379-430c-a548-5682730a7e29" externalIdFieldName="Bulk_Packing__c" type="Bulk_Packing__c" config-ref="Shared_Salesforce_Config">
+			<salesforce:records ><![CDATA[#[vars.BulkPacking]]]></salesforce:records>
+		</salesforce:upsert>
+		<!-- <salesforce:create doc:name="Create" doc:id="72e7d390-f9bb-4b9d-a112-be685b447b10" config-ref="Salesforce_Config1" type="Bulk_Packing__c">
+			<salesforce:records><![CDATA[#[vars.BulkPacking]]]></salesforce:records>
+		</salesforce:create> -->
+		<logger level="INFO" doc:name="Logger" doc:id="70c3f81f-36b4-4448-8e28-8737db1c790a" message="#['Finished upsert to SF object Bulk_Packing__c']"/>
+		<logger level="INFO" doc:name="Logger" doc:id="8b0a5662-7e7f-43db-9d2e-d29d49106b20" message="#['Request to update results into tas_sf_bulkpacking_staging table']"/>
+		<db:bulk-update doc:name="Bulk update" doc:id="43161e12-9350-4116-9327-6ea7425e96d8" config-ref="Shared_TasSupport_Database_Config">
+			<db:bulk-input-parameters ><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+payload map (i,index) -> {
+RFRecordId:i.id,
+IntegrationStatus:if (i.success == true) "S" else "F",
+Comments:if (i.success == true) "Upsert to SF Successful" else (i.errors.message)[0],
+LastUpdatedDate:integrationDate,
+(vars.BulkPacking filter ($$ == index) map {
+    BulkPacking:$.Bulk_Packing__c
+})
+}]]]></db:bulk-input-parameters>
+			<db:sql >UPDATE 
+tas_support.dbo.tas_sf_bulkpacking_staging set  
+RFRecordId=:RFRecordId,
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate
+WHERE BulkPacking = :BulkPacking</db:sql>
+		</db:bulk-update>
+		<logger level="INFO" doc:name="Logger" doc:id="13e00f8f-7dc6-4784-96a0-0f7147bbeed3" message="#['Finished updating results into tas_sf_bulkpacking_staging table']"/>
+		<logger level="INFO" doc:name="Logger" doc:id="4a30e0ee-583c-4e99-8334-47943e5252c3" message="#['Request to bulk insert data into Database table tas_sf_dotclass_staging']"/>
+		<db:bulk-insert doc:name="Bulk insert" doc:id="1b485492-cb33-4b73-b3d5-bbcecf636cbc" target="db" config-ref="Shared_TasSupport_Database_Config">
+			<db:bulk-input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+vars.DotClass map{
+FileName:"",
+DataLoadId:$.Data_Load_Id__c,
+Action:"I",
+IntegrationStatus:"I",
+Comments:"updating SF",
+CreatedBy:"tas-sf-dotclass-app",
+CreatedDate:integrationDate,
+IntegrationDate:integrationDate,
+LastUpdatedBy:"tas-sf-dotclass-app",
+LastUpdatedDate:integrationDate
+ }]]]></db:bulk-input-parameters>
+			<db:sql>INSERT INTO tas_support.dbo.TAS_SF_DOTClass_Staging 
+(
+DataLoadId,
+FileName,
+Action,
+IntegrationStatus,
+Comments,
+CreatedBy,
+CreatedDate,
+IntegrationDate,
+LastUpdatedBy,
+LastUpdatedDate
+)
+VALUES ( :DataLoadId,
+:FileName, 
+:Action, 
+:IntegrationStatus,
+:Comments,
+:CreatedBy,
+:CreatedDate,
+:IntegrationDate,
+:LastUpdatedBy, 
+:LastUpdatedDate)</db:sql>
+		</db:bulk-insert>
+		<logger level="INFO" doc:name="Logger" doc:id="ce6917a5-1212-408d-977c-d211744ef458" message="#['Finished bulk insert into Database table tas_sf_dotclass_staging']"/>
+		<logger level="INFO" doc:name="Logger" doc:id="8fbf6989-5957-488c-8647-2330cbd36e69" message="#['Request to insert data to SF object DOT_Class_Material__c']"/>
+		<logger level="INFO" doc:name="Logger" doc:id="03563d87-0b2e-489e-9e96-43de60d07c48" message="#[vars.DotClass]"/>
+		<salesforce:upsert doc:name="Upsert" doc:id="5896a86b-fb0d-4b3d-807b-23e82bfc25b3" config-ref="Shared_Salesforce_Config" externalIdFieldName="Data_Load_Id__c" type="DOT_Class_Material__c">
+			<salesforce:records ><![CDATA[#[vars.DotClass]]]></salesforce:records>
+		</salesforce:upsert>
+		<logger level="INFO" doc:name="Logger" doc:id="4bea4fa6-b3e6-43cd-ac50-a22a835de3d0" message="#['Finished insert to SF object tas_sf_dotclass_staging']"/>
+		<logger level="INFO" doc:name="Logger" doc:id="2c58316d-e16f-41a3-ab6c-bda981ff2ae0" message="#['Request to update results into tas_sf_dotclass_staging table']"/>
+		<db:bulk-update doc:name="Bulk update" doc:id="83192478-969b-4f47-a8f8-608774ea6dc3" config-ref="Shared_TasSupport_Database_Config">
+			<db:bulk-input-parameters ><![CDATA[#[%dw 2.0
+output application/java
+---
+using(integrationDate = now() as LocalDateTime)
+payload map (i,index) -> {
+RFRecordId:i.id,
+IntegrationStatus:if (i.success == true) "S" else "F",
+Comments:if (i.success == true) "Upsert to SF Successful" else (i.errors.message)[0],
+LastUpdatedDate:integrationDate,
+(vars.DotClass filter ($$ == index) map {
+    DataLoadId:$.Data_Load_Id__c
+})
+}]]]></db:bulk-input-parameters>
+			<db:sql >UPDATE 
+tas_support.dbo.TAS_SF_DOTClass_Staging set  
+RFRecordId=:RFRecordId,
+IntegrationStatus=:IntegrationStatus,
+Comments=:Comments,
+LastUpdatedDate=:LastUpdatedDate
+WHERE DataLoadId = :DataLoadId</db:sql>
+		</db:bulk-update>
+		<logger level="INFO" doc:name="Logger" doc:id="2cc7ba5e-47f5-4f1c-bef3-91ed3e3d0d98" message="#['Finished updating results into tas_sf_dotclass_staging table']"/>
+	</flow>
+</mule>
