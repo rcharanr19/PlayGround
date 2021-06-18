@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:cloudhub="http://www.mulesoft.org/schema/mule/cloudhub"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/cloudhub http://www.mulesoft.org/schema/mule/cloudhub/current/mule-cloudhub.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="c50ba636-28b9-4ad1-b374-f2f7b4846de2" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<cloudhub:config name="CloudHub_Config" doc:name="CloudHub Config" doc:id="08304a6b-d487-47a1-a05a-be87b9de3080" >
+		<cloudhub:connection username="rcsuram07" password="Summer2020" environment="46548867-7b39-4895-89a9-26145701d2da" />
+	</cloudhub:config>
+	<flow name="cloudhub-test-appFlow" doc:id="2516d7a9-6b58-43d3-8a79-38ab149091d2" >
+		<http:listener doc:name="Listener" doc:id="ce510932-d6a2-4325-a44f-1a396a85a8b2" config-ref="HTTP_Listener_config" path="/cloudHubTest"/>
+		<logger level="INFO" doc:name="Logger" doc:id="a08828d1-a892-4346-b580-6b7d1f3e37fb" message="request received from #[attributes.queryParams.sender]"/>
+		<ee:transform doc:name="Transform Message" doc:id="c5880dbd-61c1-4720-b485-4d3a30c961c6" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+"yahoooooo"]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<tracking:custom-event doc:name="Custom Business Event" doc:id="4fce1866-8bbf-48ab-b036-35e39a99e145" event-name="names">
+			<tracking:meta-data key="senderName" value=" #[attributes.queryParams.sender]"/>
+		</tracking:custom-event>
+		<logger level="INFO" doc:name="Logger" doc:id="cb8c5c0a-ca2c-46d8-b546-42a9c54e7693" message="response sent #[attributes.queryParams.sender]"/>
+		<cloudhub:create-notification doc:name="Create Notification" doc:id="4ab76d64-b0e5-48ce-a16f-ea794dfdd24e" config-ref="CloudHub_Config" domain="cloudhub-test-app" priority="INFO">
+			<cloudhub:message ><![CDATA[#["You got it successfully"]]]></cloudhub:message>
+		</cloudhub:create-notification>
+	</flow>
+</mule>
