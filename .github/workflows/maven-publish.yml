@@ -7,7 +7,7 @@ on:
   push:
     branches: [ master ]
   pull:
-    branches: [ master ]
+	branches: [ master ]
 
 jobs:
   build:
@@ -18,11 +18,10 @@ jobs:
     - uses: actions/checkout@v2
     – uses: actions/cache@v1
       with:
-        path: ~/.m2/repository
-        key: ${{ runner.os }}-maven-${{ hashFiles(‘**/pom.xml’) }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
-          
+		path: ~/.m2/repository
+		key: ${{ runner.os }}-maven-${{ hashFiles(‘**/pom.xml’) }}
+		restore-keys: |
+			${{ runner.os }}-maven-
     - name: Set up JDK 11
       uses: actions/setup-java@v1
       with:
@@ -32,38 +31,38 @@ jobs:
       run: mvn -B package --file pom.xml
 
     - name: Artifact file name with commit hash
-    run: |
-      artifactName1=$(ls target/*.jar | head -1)
-      commitHash=$(git rev-parse –short “$GITHUB_SHA”)
-      artifactName2=$(ls target/*.jar | head -1 | sed “s/.jar/.$commitHash.jar/g”)
-      mv $artifactName1 $artifactName2
-      
+	  run: |
+		artifactName1=$(ls target/*.jar | head -1)
+		commitHash=$(git rev-parse –short “$GITHUB_SHA”)
+		artifactName2=$(ls target/*.jar | head -1 | sed “s/.jar/.$commitHash.jar/g”)
+		mv $artifactName1 $artifactName2
+		
     – uses: actions/upload-artifact@master
-    with:
-      name: artifacts
-      path: target/*.jar
-      
+	  with:
+		name: artifacts
+		path: target/*.jar
   deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    
-    steps:
-    – uses: actions/checkout@v2
-    – uses: actions/cache@v1
-      with:
-        path: ~/.m2/repository
-        key: ${{ runner.os }}-maven-${{ hashFiles(‘**/pom.xml’) }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
-    – uses: actions/download-artifact@master
-      with:
-        name: artifacts
-        
-    – name: Deploy to Anypoint Platform
-      run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml
+	needs: build
+	
+	runs-on: ubuntu-latest
+	
+	steps:
+	– uses: actions/checkout@v2
+	– uses: actions/cache@v1
+	  with:
+		path: ~/.m2/repository
+		key: ${{ runner.os }}-maven-${{ hashFiles(‘**/pom.xml’) }}
+		restore-keys: |
+			${{ runner.os }}-maven-
+	– uses: actions/download-artifact@master
+	  with:
+		name: artifacts
+
+	– name: Deploy to Anypoint Platform
+	  run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml
       env:
         USERNAME: ${{ secrets.ANYPOINT_USERNAME }}
-        PASSWORD: ${{ secrets.ANYPOINT_PASSWORD }}
-        run:	|
-          artifactName=$(ls *.jar | head -1)
-          mvn mule:deploy -Dmule.artifact=$artifactName -Dusername=$USERNAME -Dpassword=$PASSWORD
+		PASSWORD: ${{ secrets.ANYPOINT_PASSWORD }}
+	  run:	|
+		artifactName=$(ls *.jar | head -1)
+		mvn mule:deploy -Dmule.artifact=$artifactName -Dusername=$USERNAME -Dpassword=$PASSWORD
