@@ -50,11 +50,11 @@ jobs:
     - uses: actions/download-artifact@master
       with:
         name: artifacts
-        path: cloudhub-test-app/target/*.jar
+
     - name: Deploy to CloudHub
       env:
         USERNAME: ${{ secrets.username }}
         PASSWORD: ${{ secrets.password }}
       run: |
-        artifactName=$(ls *.jar | head -1)
+        artifactName=$(ls cloudhub-test-app/target/*.jar | head -1)
         mvn package mule:deploy -Dmule.artifact=$artifactName -Danypoint.userName="$USERNAME" -Danypoint.password="$PASSWORD"
